@@ -1,5 +1,6 @@
 #include "gw-vcd-loader.h"
 #include "gw-vcd-loader-private.h"
+#include "gw-vlist-reader.h"
 #include "gw-vcd-file.h"
 #include "gw-vcd-file-private.h"
 #include "gw-util.h"
@@ -489,6 +490,117 @@ static unsigned int vlist_emit_finalize(GwVcdLoader *self)
     }
 
     return (cnt);
+}
+
+/* Helper function to convert vlist values to characters */
+static char vlist_value_to_char(guint32 rcv)
+{
+    /* Check for special RCV values first */
+    if ((rcv & 0xF) == 0x1) return 'x'; /* RCV_X */
+    if ((rcv & 0xF) == 0x3) return 'z'; /* RCV_Z */
+    if ((rcv & 0xF) == 0x5) return 'h'; /* RCV_H */
+    if ((rcv & 0xF) == 0x7) return 'u'; /* RCV_U */
+    if ((rcv & 0xF) == 0x9) return 'w'; /* RCV_W */
+    if ((rcv & 0xF) == 0xB) return 'l'; /* RCV_L */
+    if ((rcv & 0xF) == 0xD) return '-'; /* RCV_D */
+    
+    /* Handle regular 0/1 values */
+    switch (rcv & 0xF) {
+        case 0x2: return '0';
+        case 0x3: return '1';
+        default: return (rcv & 2) ? '1' : '0';
+    }
+}
+
+/* Regenerate traditional history array from vlist data */
+static void regen_harray_from_vlist(GwNode *nd)
+{
+    if (!nd->mv.mvlfac_vlist) {
+        return;
+    }
+    
+    /* Decompress vlist and create traditional history array */
+    GwVlistReader *reader = gw_vlist_reader_new(nd->mv.mvlfac_vlist, FALSE);
+    if (!reader) {
+        return;
+    }
+    
+    /* Read the header to determine the value type */
+    guint32 header = gw_vlist_reader_read_uv32(reader);
+    char value_type = (char)(header & 0xFF);
+    
+    GwTime current_time = 0;
+    GList *history_entries = NULL;
+    
+    /* Process the vlist data based on value type */
+    if (value_type == '0') {
+        /* Single bit values */
+        /* guint32 vartype = */ gw_vlist_reader_read_uv32(reader);
+        guint32 initial_value = gw_vlist_reader_read_uv32(reader);
+        
+        /* Create initial history entry */
+        GwHistEnt *he = g_new0(GwHistEnt, 1);
+        he->time = current_time;
+        he->v.h_val = vlist_value_to_char(initial_value);
+        history_entries = g_list_append(history_entries, he);
+        
+        /* Process all value changes */
+        while (!gw_vlist_reader_is_done(reader)) {
+            guint32 rcv = gw_vlist_reader_read_uv32(reader);
+            guint32 time_delta = rcv >> 4;
+            char value = vlist_value_to_char(rcv);
+            
+            current_time += time_delta;
+            
+            GwHistEnt *he = g_new0(GwHistEnt, 1);
+            he->time = current_time;
+            he->v.h_val = value;
+            history_entries = g_list_append(history_entries, he);
+        }
+    } else {
+        /* For other value types, we'll just create a basic entry */
+        GwHistEnt *he = g_new0(GwHistEnt, 1);
+        he->time = current_time;
+        he->v.h_val = 'x'; /* Unknown value */
+        history_entries = g_list_append(history_entries, he);
+    }
+    
+    /* Free existing harray if it exists */
+    if (nd->harray) {
+        g_free(nd->harray);
+        nd->harray = NULL;
+    }
+    
+    /* Convert linked list to array */
+    nd->numhist = g_list_length(history_entries);
+    if (nd->numhist > 0) {
+        nd->harray = g_new0(GwHistEnt *, nd->numhist);
+        
+        GList *iter = history_entries;
+        for (int i = 0; i < nd->numhist; i++) {
+            nd->harray[i] = (GwHistEnt *)iter->data;
+            iter = g_list_next(iter);
+        }
+    }
+    
+    /* Free the linked list (but not the elements - they're in the array now) */
+    g_list_free(history_entries);
+    g_object_unref(reader);
+}
+
+/* Regenerate history arrays for all symbols after vlist finalization */
+static void regen_all_harrays(GwVcdLoader *self)
+{
+    struct vcdsymbol *v;
+    
+    v = self->vcdsymroot;
+    while (v) {
+        if (v->narray != NULL && v->narray[0] != NULL) {
+            GwNode *n = v->narray[0];
+            regen_harray_from_vlist(n);
+        }
+        v = v->next;
+    }
 }
 
 /******************************************************************/
@@ -2477,6 +2589,9 @@ static GwDumpFile *gw_vcd_loader_load(GwLoader *loader, const gchar *fname, GErr
     gw_vlist_freeze(&self->time_vlist, self->vlist_compression_level);
 
     vlist_emit_finalize(self);
+    
+    /* Regenerate traditional history arrays for display */
+    regen_all_harrays(self);
 
     if (self->symbols_sorted == NULL && self->symbols_indexed == NULL) {
         g_set_error(error,

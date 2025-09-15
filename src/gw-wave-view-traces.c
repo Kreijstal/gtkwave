@@ -132,7 +132,6 @@ static void draw_hptr_trace(GwWaveView *self,
                             int which,
                             int dodraw,
                             int kill_grid);
-static void draw_fallback_trace(GwWaveView *self, cairo_t *cr, GwWaveformColors *colors, GwTrace *t, int which);
 static void draw_hptr_trace_vector(GwWaveView *self,
                                    cairo_t *cr,
                                    GwWaveformColors *colors,
@@ -218,13 +217,7 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
                         }
                     }
                     
-                    /* Check if history data is corrupted and use fallback drawing */
-                    if (t->n.nd && t->n.nd->harray && t->n.nd->numhist > 0 && t->n.nd->harray[0]->time < 0) {
-                        fprintf(stderr, "DEBUG: History data corrupted for %s, using fallback drawing\n", t->name ? t->name : "NULL");
-                        draw_fallback_trace(self, cr, colors, t, i);
-                        t = GiveNextTrace(t);
-                        continue;
-                    }
+
                     
                     h = bsearch_node(t->n.nd, GLOBALS->tims.start - t->shift);
                     fprintf(stderr, "DEBUG: bsearch_node returned h=%p\n", h);
@@ -311,36 +304,7 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
     }
 }
 
-static void draw_fallback_trace(GwWaveView *self, cairo_t *cr, GwWaveformColors *colors, GwTrace *t, int which)
-{
-    fprintf(stderr, "DEBUG: draw_fallback_trace called for %s\n", t->name ? t->name : "NULL");
-    fprintf(stderr, "DEBUG: This indicates VCD parsing failed to create proper history data\n");
-    fprintf(stderr, "DEBUG: The history array contains corrupted time values instead of actual VCD times\n");
-    
-    /* Draw a simple square wave as fallback when history data is corrupted */
-    int liney = ((which + 2) * GLOBALS->fontheight) - 2;
-    int _y0 = ((which + 1) * GLOBALS->fontheight) + 2;
-    int _y1 = liney - 2;
 
-    
-    /* Draw a simple clock signal pattern */
-    int period = GLOBALS->wavewidth / 10;
-    for (int x = 0; x < GLOBALS->wavewidth; x += period) {
-        int phase = (x / period) % 2;
-        
-        if (phase == 0) {
-            /* Low phase */
-            XXX_gdk_draw_line(cr, colors->stroke_0, x, _y0, x + period/2, _y0);
-            /* Transition to high */
-            XXX_gdk_draw_line(cr, colors->stroke_1, x + period/2, _y0, x + period/2, _y1);
-        } else {
-            /* High phase */
-            XXX_gdk_draw_line(cr, colors->stroke_1, x, _y1, x + period/2, _y1);
-            /* Transition to low */
-            XXX_gdk_draw_line(cr, colors->stroke_0, x + period/2, _y1, x + period/2, _y0);
-        }
-    }
-}
 
 /*
  * draw single traces and use this for rendering the grid lines

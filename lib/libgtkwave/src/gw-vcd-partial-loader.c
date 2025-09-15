@@ -769,6 +769,9 @@ GwDumpFile *gw_vcd_partial_loader_load(GwLoader *loader, const gchar *fname, GEr
     /* Finalize vlists before building symbols */
     vlist_emit_finalize(GW_VCD_LOADER(self));
     
+    /* Regenerate traditional history arrays for display */
+    regen_all_harrays(GW_VCD_LOADER(self));
+    
     /* Build symbols and finalize */
     vcd_partial_build_symbols(self);
     

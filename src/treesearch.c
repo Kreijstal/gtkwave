@@ -985,6 +985,7 @@ static void sig_selection_foreach(GtkTreeModel *model,
 static void sig_selection_foreach_finalize(gpointer data)
 {
     const enum sst_cb_action action = GPOINTER_TO_INT(data);
+    fprintf(stderr, "DEBUG: treesearch.c: action=%d\n", action);
 
     if (action == SST_ACTION_REPLACE || action == SST_ACTION_INSERT ||
         action == SST_ACTION_PREPEND) {
@@ -1008,6 +1009,7 @@ static void sig_selection_foreach_finalize(gpointer data)
         GLOBALS->traces.total = GLOBALS->tcache_treesearch_gtk2_c_2.total;
 
         if (action == SST_ACTION_REPLACE) {
+            fprintf(stderr, "DEBUG: treesearch.c: SST_ACTION_REPLACE block\n");
             t = GLOBALS->traces.first;
             while (t) {
                 if (t->flags & TR_HIGHLIGHT) {
@@ -1017,6 +1019,7 @@ static void sig_selection_foreach_finalize(gpointer data)
             }
             if (numhigh) {
                 tp = calloc_2(numhigh, sizeof(GwTrace *));
+                fprintf(stderr, "DEBUG: treesearch.c: tp=%p\n", tp);
                 t = GLOBALS->traces.first;
                 it = 0;
                 while (t) {
@@ -1034,11 +1037,13 @@ static void sig_selection_foreach_finalize(gpointer data)
             PasteBuffer();
         }
 
+        fprintf(stderr, "DEBUG: treesearch.c: Before cache restoration\n");
         GLOBALS->traces.buffercount = GLOBALS->tcache_treesearch_gtk2_c_2.buffercount;
         GLOBALS->traces.buffer = GLOBALS->tcache_treesearch_gtk2_c_2.buffer;
         GLOBALS->traces.bufferlast = GLOBALS->tcache_treesearch_gtk2_c_2.bufferlast;
 
         if (action == SST_ACTION_REPLACE) {
+            fprintf(stderr, "DEBUG: treesearch.c: Before highlight restoration\n");
             for (it = 0; it < numhigh; it++) {
                 tp[it]->flags |= TR_HIGHLIGHT;
             }

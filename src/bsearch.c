@@ -107,8 +107,16 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
 
     if ((!GLOBALS->max_compare_pos_bsearch_c_1) ||
         (GLOBALS->max_compare_time_bsearch_c_1 < GW_TIME_CONSTANT(0))) {
-        GLOBALS->max_compare_pos_bsearch_c_1 = n->harray[1]; /* aix bsearch fix */
-        GLOBALS->max_compare_index = &(n->harray[1]);
+        if (n->numhist > 1) {
+            GLOBALS->max_compare_pos_bsearch_c_1 = n->harray[1]; /* aix bsearch fix */
+        } else if (n->numhist > 0) {
+            GLOBALS->max_compare_pos_bsearch_c_1 = n->harray[0]; /* use first element if only one exists */
+        }
+        if (n->numhist > 1) {
+            GLOBALS->max_compare_index = &(n->harray[1]);
+        } else if (n->numhist > 0) {
+            GLOBALS->max_compare_index = &(n->harray[0]);
+        }
     }
 
     while (GLOBALS->max_compare_pos_bsearch_c_1->next) /* non-RoSync dumper deglitching fix */

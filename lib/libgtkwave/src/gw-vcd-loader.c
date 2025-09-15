@@ -869,6 +869,7 @@ static void version_sync_end(GwVcdLoader *self)
 static void parse_valuechange_scalar(GwVcdLoader *self)
 {
     struct vcdsymbol *v;
+    fprintf(stderr, "DEBUG: parse_valuechange_scalar called: yytext='%s', yylen=%d\n", self->yytext, self->yylen);
 
     if (self->yylen > 1) {
         v = bsearch_vcd(self, self->yytext + 1, self->yylen - 1);
@@ -879,7 +880,8 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
                     self->yytext + 1);
             malform_eof_fix(self);
         } else {
-            // DEBUG: Print signal value and time
+            fprintf(stderr, "DEBUG: Found symbol: id='%s', value='%c', current_time=%ld\n", 
+                    self->yytext + 1, self->yytext[0], self->current_time);
 
             
             GwNode *n = v->narray[0];
@@ -1632,6 +1634,8 @@ static void vcd_parse_var(GwVcdLoader *self)
     v->narray[0] = g_new0(GwNode, 1);
     v->narray[0]->head.time = -2;
     v->narray[0]->head.v.h_val = GW_BIT_X;
+    fprintf(stderr, "DEBUG: Created initial node for symbol '%s': head.time=%ld, head.v.h_val=%d\n", 
+            v->name ? v->name : "NULL", v->narray[0]->head.time, v->narray[0]->head.v.h_val);
 
     if (self->vcdsymroot == NULL) {
         self->vcdsymroot = self->vcdsymcurr = v;

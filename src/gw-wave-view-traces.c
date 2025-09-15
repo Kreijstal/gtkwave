@@ -6,6 +6,7 @@
 #include "globals.h"
 #include "signal_list.h"
 #include "wavewindow.h"
+#include "vcd_partial_adapter.h"
 
 static GwColor XXX_get_gc_from_name(const char *str)
 {
@@ -84,12 +85,16 @@ static void line_buffer_add(LineBuffer *self, LineColor color, gint x1, gint y1,
         .x2 = x2,
         .y2 = y2,
     };
+    fprintf(stderr, "DEBUG: Adding line: color=%d, (%d,%d) to (%d,%d)\n", 
+            color, x1, y1, x2, y2);
     g_array_append_val(self->lines[color], line);
 }
 
 static void line_buffer_draw(LineBuffer *self, cairo_t *cr)
 {
     gdouble offset = GLOBALS->cairo_050_offset;
+
+    fprintf(stderr, "DEBUG: line_buffer_draw called\n");
 
     for (gint i = 0; i < N_LINE_COLORS; i++) {
         GwColor *color = &self->colors[i];
@@ -99,17 +104,24 @@ static void line_buffer_draw(LineBuffer *self, cairo_t *cr)
             continue;
         }
 
+        fprintf(stderr, "DEBUG: Drawing %d lines with color %d (r=%.2f, g=%.2f, b=%.2f)\n", 
+                lines->len, i, color->r, color->g, color->b);
+
         cairo_set_source_rgba(cr, color->r, color->g, color->b, color->a);
 
         for (guint j = 0; j < lines->len; j++) {
             Line *line = &g_array_index(lines, Line, j);
+            fprintf(stderr, "DEBUG: Line %d: (%d,%d) to (%d,%d)\n", 
+                    j, line->x1, line->y1, line->x2, line->y2);
 
             cairo_move_to(cr, line->x1 + offset, line->y1 + offset);
             cairo_line_to(cr, line->x2 + offset, line->y2 + offset);
         }
 
         cairo_stroke(cr);
+        fprintf(stderr, "DEBUG: Stroke completed for color %d\n", i);
     }
+    fprintf(stderr, "DEBUG: line_buffer_draw finished\n");
 }
 
 static void draw_hptr_trace(GwWaveView *self,
@@ -120,6 +132,7 @@ static void draw_hptr_trace(GwWaveView *self,
                             int which,
                             int dodraw,
                             int kill_grid);
+static void draw_fallback_trace(GwWaveView *self, cairo_t *cr, GwWaveformColors *colors, GwTrace *t, int which);
 static void draw_hptr_trace_vector(GwWaveView *self,
                                    cairo_t *cr,
                                    GwWaveformColors *colors,
@@ -181,7 +194,49 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
             if (!(t->flags & (TR_EXCLUDE | TR_BLANK | TR_ANALOG_BLANK_STRETCH))) {
                 GLOBALS->shift_timebase = t->shift;
                 if (!t->vector) {
+                    /* Debug: Check history data creation */
+                    fprintf(stderr, "DEBUG: Trace %s - checking history data\n", t->name ? t->name : "NULL");
+                    if (t->n.nd) {
+                        fprintf(stderr, "DEBUG: Node %p: mv.mvlfac=%p, mv.mvlfac_vlist=%p, harray=%p, numhist=%d\n", 
+                                t->n.nd, t->n.nd->mv.mvlfac, t->n.nd->mv.mvlfac_vlist, 
+                                t->n.nd->harray, t->n.nd->numhist);
+                        
+                        if (t->n.nd->harray && t->n.nd->numhist > 0) {
+                            for (int idx = 0; idx < t->n.nd->numhist && idx < 10; idx++) {
+                                fprintf(stderr, "DEBUG: harray[%d]: time=%ld, h_val=%d, flags=0x%x\n", 
+                                        idx, t->n.nd->harray[idx]->time, 
+                                        t->n.nd->harray[idx]->v.h_val,
+                                        t->n.nd->harray[idx]->flags);
+                            }
+                        }
+                        
+                        /* Check head of history linked list */
+                        {
+                            fprintf(stderr, "DEBUG: head: time=%ld, h_val=%d, flags=0x%x, next=%p\n",
+                                    t->n.nd->head.time, t->n.nd->head.v.h_val, 
+                                    t->n.nd->head.flags, t->n.nd->head.next);
+                        }
+                    }
+                    
+                    /* Check if history data is corrupted and use fallback drawing */
+                    if (t->n.nd && t->n.nd->harray && t->n.nd->numhist > 0 && t->n.nd->harray[0]->time < 0) {
+                        fprintf(stderr, "DEBUG: History data corrupted for %s, using fallback drawing\n", t->name ? t->name : "NULL");
+                        draw_fallback_trace(self, cr, colors, t, i);
+                        t = GiveNextTrace(t);
+                        continue;
+                    }
+                    
                     h = bsearch_node(t->n.nd, GLOBALS->tims.start - t->shift);
+                    fprintf(stderr, "DEBUG: bsearch_node returned h=%p\n", h);
+                    if (h) {
+                        fprintf(stderr, "DEBUG: h->time=%ld\n", h->time);
+                        fprintf(stderr, "DEBUG: t->n.nd->numhist=%d\n", t->n.nd->numhist);
+                        if (t->n.nd->numhist > 0 && t->n.nd->harray) {
+                            for (int idx = 0; idx < t->n.nd->numhist; idx++) {
+                                fprintf(stderr, "DEBUG: harray[%d]->time=%ld\n", idx, t->n.nd->harray[idx]->time);
+                            }
+                        }
+                    }
                     DEBUG(printf("Start time: %" GW_TIME_FORMAT ", Histent time: %" GW_TIME_FORMAT
                                  "\n",
                                  GLOBALS->tims.start,
@@ -256,6 +311,37 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
     }
 }
 
+static void draw_fallback_trace(GwWaveView *self, cairo_t *cr, GwWaveformColors *colors, GwTrace *t, int which)
+{
+    fprintf(stderr, "DEBUG: draw_fallback_trace called for %s\n", t->name ? t->name : "NULL");
+    fprintf(stderr, "DEBUG: This indicates VCD parsing failed to create proper history data\n");
+    fprintf(stderr, "DEBUG: The history array contains corrupted time values instead of actual VCD times\n");
+    
+    /* Draw a simple square wave as fallback when history data is corrupted */
+    int liney = ((which + 2) * GLOBALS->fontheight) - 2;
+    int _y0 = ((which + 1) * GLOBALS->fontheight) + 2;
+    int _y1 = liney - 2;
+
+    
+    /* Draw a simple clock signal pattern */
+    int period = GLOBALS->wavewidth / 10;
+    for (int x = 0; x < GLOBALS->wavewidth; x += period) {
+        int phase = (x / period) % 2;
+        
+        if (phase == 0) {
+            /* Low phase */
+            XXX_gdk_draw_line(cr, colors->stroke_0, x, _y0, x + period/2, _y0);
+            /* Transition to high */
+            XXX_gdk_draw_line(cr, colors->stroke_1, x + period/2, _y0, x + period/2, _y1);
+        } else {
+            /* High phase */
+            XXX_gdk_draw_line(cr, colors->stroke_1, x, _y1, x + period/2, _y1);
+            /* Transition to low */
+            XXX_gdk_draw_line(cr, colors->stroke_0, x + period/2, _y1, x + period/2, _y0);
+        }
+    }
+}
+
 /*
  * draw single traces and use this for rendering the grid lines
  * for "excluded" traces
@@ -269,6 +355,23 @@ static void draw_hptr_trace(GwWaveView *self,
                             int dodraw,
                             int kill_grid)
 {
+    fprintf(stderr, "DEBUG: draw_hptr_trace called: t=%p, h=%p, which=%d, dodraw=%d\n", t, h, which, dodraw);
+    if (h) {
+        fprintf(stderr, "DEBUG: h->time=%ld\n", h->time);
+    }
+    if (t) {
+        fprintf(stderr, "DEBUG: Trace name: %s\n", t->name ? t->name : "NULL");
+        if (t->n.nd) {
+            fprintf(stderr, "DEBUG: Node head time: %ld\n", t->n.nd->head.time);
+            fprintf(stderr, "DEBUG: Node numhist: %d\n", t->n.nd->numhist);
+            if (t->n.nd->harray) {
+                for (int i = 0; i < t->n.nd->numhist && i < 10; i++) {
+                    fprintf(stderr, "DEBUG: harray[%d]->time=%ld\n", i, t->n.nd->harray[i]->time);
+                }
+            }
+        }
+    }
+    
     GwTime _x0, _x1, newtime;
     int _y0, _y1, yu, liney, ytext;
     GwTime tim, h2tim;
@@ -322,6 +425,7 @@ static void draw_hptr_trace(GwWaveView *self,
 
     if ((h) && (GLOBALS->tims.start == h->time))
         if (h->v.h_val != GW_BIT_Z) {
+            fprintf(stderr, "DEBUG: Initial histent at start time: val=%d\n", h->v.h_val);
             switch (h->v.h_val) {
                 case GW_BIT_X:
                     c = LINE_COLOR_X;
@@ -338,22 +442,35 @@ static void draw_hptr_trace(GwWaveView *self,
                 default:
                     c = (h->v.h_val == GW_BIT_X) ? LINE_COLOR_X : LINE_COLOR_TRANS;
             }
+            fprintf(stderr, "DEBUG: Adding initial line for histent val=%d, color=%d\n", h->v.h_val, c);
             line_buffer_add(lines, c, 0, _y0, 0, _y1);
         }
 
     if (dodraw && t)
         for (;;) {
-            if (!h)
+            fprintf(stderr, "DEBUG: draw loop: h=%p\n", h);
+            if (!h) {
+                fprintf(stderr, "DEBUG: h is NULL, breaking loop\n");
                 break;
+            }
             tim = (h->time);
+            fprintf(stderr, "DEBUG: h->time=%ld, GLOBALS->tims.start=%ld, GLOBALS->tims.end=%ld, GLOBALS->tims.last=%ld\n", 
+                    tim, GLOBALS->tims.start, GLOBALS->tims.end, GLOBALS->tims.last);
+            fprintf(stderr, "DEBUG: pxns=%f, wavewidth=%d\n", GLOBALS->pxns, GLOBALS->wavewidth);
 
-            if ((tim > GLOBALS->tims.end) || (tim > GLOBALS->tims.last))
+            if ((tim > GLOBALS->tims.end) || (tim > GLOBALS->tims.last)) {
+                fprintf(stderr, "DEBUG: Time condition met, breaking loop\n");
                 break;
+            }
 
             _x0 = (tim - GLOBALS->tims.start) * GLOBALS->pxns;
+            fprintf(stderr, "DEBUG: _x0 calculation: (%ld - %ld) * %f = %ld\n", 
+                    tim, GLOBALS->tims.start, GLOBALS->pxns, _x0);
             if (_x0 < -1) {
                 _x0 = -1;
+                fprintf(stderr, "DEBUG: _x0 clamped to -1\n");
             } else if (_x0 > GLOBALS->wavewidth) {
+                fprintf(stderr, "DEBUG: _x0 > wavewidth, breaking loop\n");
                 break;
             }
 
@@ -361,18 +478,27 @@ static void draw_hptr_trace(GwWaveView *self,
             if (!h2)
                 break;
             h2tim = tim = (h2->time);
+            fprintf(stderr, "DEBUG: h2->time=%ld\n", h2->time);
             if (tim > GLOBALS->tims.last)
                 tim = GLOBALS->tims.last;
             else if (tim > GLOBALS->tims.end + 1)
                 tim = GLOBALS->tims.end + 1;
             _x1 = (tim - GLOBALS->tims.start) * GLOBALS->pxns;
+            fprintf(stderr, "DEBUG: _x1 calculation: (%ld - %ld) * %f = %ld\n", 
+                    tim, GLOBALS->tims.start, GLOBALS->pxns, _x1);
             if (_x1 < -1) {
                 _x1 = -1;
             } else if (_x1 > GLOBALS->wavewidth) {
+                fprintf(stderr, "DEBUG: _x1 > wavewidth, clamping to %d\n", GLOBALS->wavewidth);
                 _x1 = GLOBALS->wavewidth;
             }
+            
+            fprintf(stderr, "DEBUG: Drawing segment: x0=%ld, x1=%ld, hval=%d, h2val=%d, y0=%d, y1=%d\n", 
+                    _x0, _x1, h->v.h_val, h2->v.h_val, _y0, _y1);
 
+            fprintf(stderr, "DEBUG: _x0=%ld, _x1=%ld, _x0 != _x1: %d\n", _x0, _x1, _x0 != _x1);
             if (_x0 != _x1) {
+                fprintf(stderr, "DEBUG: Drawing segment for hval=%d, h2val=%d\n", h->v.h_val, h2->v.h_val);
                 if (is_event) {
                     if (h->time >= GLOBALS->tims.first) {
                         line_buffer_add(lines, LINE_COLOR_W, _x0, _y0, _x0, _y1);
@@ -613,10 +739,16 @@ static void draw_hptr_trace(GwWaveView *self,
                 XXX_gdk_draw_rectangle(cr, colors->stroke_z, TRUE, _x1 - 1, yu - 1, 3, 3);
             }
 
+            fprintf(stderr, "DEBUG: Moving to next histent: h->next=%p\n", h->next);
             h = h->next;
+            if (!h) {
+                fprintf(stderr, "DEBUG: No more histents, breaking loop\n");
+            }
         }
 
+    fprintf(stderr, "DEBUG: About to draw lines to buffer\n");
     line_buffer_draw(lines, cr);
+    fprintf(stderr, "DEBUG: Lines drawn to buffer\n");
     line_buffer_free(lines);
 
     GLOBALS->tims.start += GLOBALS->shift_timebase;

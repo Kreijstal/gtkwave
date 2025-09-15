@@ -162,6 +162,7 @@ static void add_histent_vector(GwVcdFile *self, GwTime tim, GwNode *n, guint8 *v
 
 static void add_histent_scalar(GwVcdFile *self, GwTime tim, GwNode *n, GwBit bit)
 {
+    fprintf(stderr, "DEBUG: add_histent_scalar: tim=%ld, bit=%d, n->nname=%s\n", tim, bit, n->nname ? n->nname : "NULL");
     if (!n->curr) {
         GwHistEnt *he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
         he->time = -1;
@@ -192,6 +193,7 @@ static void add_histent_scalar(GwVcdFile *self, GwTime tim, GwNode *n, GwBit bit
             GwHistEnt *he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
             he->time = tim;
             he->v.h_val = bit;
+            fprintf(stderr, "DEBUG: Created new histent: time=%ld, bit=%d\n", he->time, he->v.h_val);
 
             n->curr->next = he;
             if (n->curr->v.h_val == bit) {
@@ -233,6 +235,7 @@ static void gw_vcd_file_import_trace_scalar(GwVcdFile *self, GwNode *np, GwVlist
         }
 
         GwTime t = *curtime_pnt * time_scale;
+        fprintf(stderr, "DEBUG: Adding histent: time=%ld, bit=%d, node=%s\n", t, bit, np->nname ? np->nname : "NULL");
         add_histent_scalar(self, t, np, bit);
     }
 

@@ -1,6 +1,8 @@
 #include "vcd_partial_adapter.h"
 #include "globals.h"
 #include "gw-vcd-partial-loader.h"
+#include "gw-facs.h"
+#include "gw-symbol.h"
 #include "gw-vcd-loader-private.h"
 #include <glib-object.h>
 #include "symbol.h"

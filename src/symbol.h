@@ -22,6 +22,7 @@
 #include "debug.h"
 
 #define WAVE_DECOMPRESSOR "gzip -cd " /* zcat alone doesn't cut it for AIX */
+#define SYMPRIME 500009
 
 #include <unistd.h>
 #ifdef HAVE_INTTYPES_H
@@ -37,6 +38,7 @@ struct string_chain_t
 void facsplit(char *, int *, int *);
 int sigcmp(char *, char *);
 void quicksort(GwSymbol **, int, int);
+void sym_hash_destroy(void *g);
 
 GwBits *makevec(char *, char *);
 GwBits *makevec_annotated(char *, char *);

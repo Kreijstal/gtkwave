@@ -74,3 +74,24 @@ option(
     value: 'false',
     description: 'Build MacOS application bundle',
 )
+
+option(
+    'interactive-vcd',
+    type: 'boolean',
+    value: true,
+    description: 'Enable interactive VCD mode support'
+)
+
+option(
+    'hierpack',
+    type: 'boolean',
+    value: true,
+    description: 'Enable hierarchy compression support'
+)
+
+option(
+    'shared-memory',
+    type: 'boolean',
+    value: true,
+    description: 'Enable shared memory support for interactive mode'
+)

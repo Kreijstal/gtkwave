@@ -14,7 +14,12 @@
 
 #include <gtk/gtk.h>
 #include <stdlib.h>
+#include "gw-vlist.h"
 #include "debug.h"
+
+#ifdef AET2_IS_PRESENT
+#define WAVE_ARRAY_SUPPORT
+#endif
 
 typedef struct _SearchProgressData
 {
@@ -25,6 +30,8 @@ typedef struct _SearchProgressData
 } SearchProgressData;
 
 #define BITATTRIBUTES_MAX 32768
+
+typedef struct ExpandInfo *eptr;
 
 typedef unsigned long Ulong;
 typedef unsigned int Uint;
@@ -64,10 +71,28 @@ enum TraceReorderMode
 #define AN_HEX_STR "0123456789ABCDEFxzwu-XZWU"
 #define AN_OCT_STR "01234567xzwu-"
 
+/* now the recoded "extra" values... */
+#define RCV_X (1 | (0 << 1))
+#define RCV_Z (1 | (1 << 1))
+#define RCV_H (1 | (2 << 1))
+#define RCV_U (1 | (3 << 1))
+#define RCV_W (1 | (4 << 1))
+#define RCV_L (1 | (5 << 1))
+#define RCV_D (1 | (6 << 1))
+
+#define RCV_STR "xzhuwl-?"
+/*               01234567 */
 
 /* ^^^   Bit representation   ^^^ */
 
 #define MAX_HISTENT_TIME ((GwTime)(~((GW_UTIME_CONSTANT(-1)) << (sizeof(GwTime) * 8 - 1))))
+
+typedef struct ExpandInfo /* only used when expanding atomic vex.. */
+{
+    GwNode **narray;
+    int msb, lsb;
+    int width;
+} ExpandInfo;
 
 typedef uint64_t TraceFlagsType;
 #define TRACEFLAGSSCNFMT SCNx64
@@ -214,6 +239,7 @@ int UpdateTracesVisible(void);
 void DisplayTraces(int val);
 int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret);
 int AddNode(GwNode *nd, char *aliasname);
+int AddNodeUnroll(GwNode *nd, char *aliasname);
 int AddVector(GwBitVector *vec, char *aliasname);
 int AddBlankTrace(char *commentname);
 int InsertBlankTrace(char *comment, TraceFlagsType different_flags);
@@ -229,6 +255,7 @@ int DeleteBuffer(void);
 
 void import_trace(GwNode *np);
 
+eptr ExpandNode(GwNode *n);
 void DeleteNode(GwNode *n);
 GwNode *ExtractNodeSingleBit(GwNode *n, int bit);
 
@@ -252,7 +279,7 @@ void EnsureGroupsMatch(void);
 #define IsCollapsed(t) (t->flags & TR_COLLAPSED)
 
 unsigned IsShadowed(GwTrace *t);
-char *GetFullName(GwTrace *t);
+char *GetFullName(GwTrace *t, int *was_packed);
 
 void OpenTrace(GwTrace *t);
 void CloseTrace(GwTrace *t);

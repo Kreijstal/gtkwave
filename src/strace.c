@@ -12,6 +12,7 @@
 #include "gtk23compat.h"
 #include "strace.h"
 #include "currenttime.h"
+#include "hierpack.h"
 
 #define WV_STRACE_CTX "strace_ctx"
 
@@ -1579,36 +1580,49 @@ void cache_actual_pattern_mark_traces(void)
 
                     nodes = t->n.vec->bits->nodes;
                     for (i = 0; i < t->n.vec->bits->nnbits; i++) {
+                        int was_packed = HIER_DEPACK_STATIC;
                         char *namex;
                         if (nodes[i]->expansion) {
-                            namex = nodes[i]->expansion->parent->nname;
+                            namex = hier_decompress_flagged(nodes[i]->expansion->parent->nname,
+                                                            &was_packed);
                             mprintf(" (%d)%s", nodes[i]->expansion->parentbit, namex);
+                            /* if(was_packed) free_2(namex); ...not needed for HIER_DEPACK_STATIC */
                         } else {
+                            /* namex = */ hier_decompress_flagged(nodes[i]->nname,
+                                                                  &was_packed); /* scan-build */
                             mprintf(" %s", nodes[i]->nname);
+                            /* if(was_packed) free_2(namex); ...not needed for HIER_DEPACK_STATIC */
                         }
                     }
                     mprintf("\n");
                 } else {
+                    int was_packed = HIER_DEPACK_STATIC;
                     char *namex;
 
                     if (HasAlias(t)) {
                         if (t->n.nd->expansion) {
-                            namex = t->n.nd->expansion->parent->nname;
+                            namex = hier_decompress_flagged(t->n.nd->expansion->parent->nname,
+                                                            &was_packed);
                             mprintf("+{%s} (%d)%s\n",
                                     t->name + 2,
                                     t->n.nd->expansion->parentbit,
                                     namex);
+                            /* if(was_packed) free_2(namex); ...not needed for HIER_DEPACK_STATIC */
                         } else {
-                            namex = t->n.nd->nname;
+                            namex = hier_decompress_flagged(t->n.nd->nname, &was_packed);
                             mprintf("+{%s} %s\n", t->name + 2, namex);
+                            /* if(was_packed) free_2(namex); ...not needed for HIER_DEPACK_STATIC */
                         }
                     } else {
                         if (t->n.nd->expansion) {
-                            namex = t->n.nd->expansion->parent->nname;
+                            namex = hier_decompress_flagged(t->n.nd->expansion->parent->nname,
+                                                            &was_packed);
                             mprintf("(%d)%s\n", t->n.nd->expansion->parentbit, namex);
+                            /* if(was_packed) free_2(namex); ...not needed for HIER_DEPACK_STATIC */
                         } else {
-                            namex = t->n.nd->nname;
+                            namex = hier_decompress_flagged(t->n.nd->nname, &was_packed);
                             mprintf("%s\n", namex);
+                            /* if(was_packed) free_2(namex); ...not needed for HIER_DEPACK_STATIC*/
                         }
                     }
                 }

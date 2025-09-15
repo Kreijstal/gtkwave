@@ -1,6 +1,7 @@
 #include <config.h>
 #include "gw-mouseover.h"
 #include "analyzer.h"
+#include "hierpack.h"
 
 struct _GwMouseover
 {
@@ -169,7 +170,10 @@ static char *get_fullname(GwTrace *t)
             s = strdup_2(t->n.vec->bvname);
         } else {
             if (!HasAlias(t)) {
-                s = t->n.nd->nname;
+                int flagged = HIER_DEPACK_ALLOC;
+                s = hier_decompress_flagged(t->n.nd->nname, &flagged);
+                if (!flagged)
+                    s = strdup_2(s);
             }
         }
     }

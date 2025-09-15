@@ -397,6 +397,7 @@ gtkwave_mlist_t *retrieve_menu_items_array(int *num_items);
 void menu_read_stems_cleanup(GtkWidget *widget, gpointer data);
 void menu_new_viewer_tab_cleanup(GtkWidget *widget, gpointer data);
 int menu_new_viewer_tab_cleanup_2(char *fname, int optimize_vcd);
+int execute_script(char *name, int dealloc_name);
 
 void movetotime_cleanup(GtkWidget *widget, gpointer data);
 void zoomsize_cleanup(GtkWidget *widget, gpointer data);

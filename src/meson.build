@@ -28,6 +28,7 @@ gtkwave_sources = [
     'globals.c',
     'gtk23compat.c',
     'gw-mouseover.c',
+    'hierpack.c',
     'gw-named-marker-dialog.c',
     'gw-time-display.c',
     'gw-wave-view-traces.c',
@@ -63,6 +64,7 @@ gtkwave_sources = [
     'tree.c',
     'treesearch.c',
     'ttranslate.c',
+    'vcd_partial_adapter.c',
     'vcd_saver.c',
     'vcd.c',
     'wavewindow.c',
@@ -87,6 +89,7 @@ gtkwave_dependencies = [
 gtkwave_include_directories = [
     config_inc,
     'cocoa',
+    '../lib/libgtkwave/src',
 ]
 
 executable(

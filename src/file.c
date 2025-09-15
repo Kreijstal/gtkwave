@@ -115,7 +115,7 @@ void fileselbox(const char *title,
                                                         XXX_GTK_STOCK_CANCEL);
     }
 
-    GLOBALS->pFileChoose = pFileChooseNative;
+    GLOBALS->pFileChoose = (GtkWidget *)pFileChooseNative; /* Temporary cast for compatibility */
 
     if ((can_set_filename) && (*filesel_path)) {
         int flen = strlen(*filesel_path);

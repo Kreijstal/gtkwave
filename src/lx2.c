@@ -19,20 +19,27 @@
 #include <stdlib.h>
 #include "symbol.h"
 #include "vcd.h"
+#include "debug.h"
 #include "busy.h"
-
-// TODO: remove
-static GPtrArray *import_nodes;
+#include "hierpack.h"
+#include "gw-vcd-file.h"
+#include "gw-fst-file.h"
 
 /*
  * actually import an lx2 trace but don't do it if it's already been imported
  */
 void import_lx2_trace(GwNode *np)
 {
-    GwNode *nodes[2] = {np, NULL};
-
-    // TODO: report errors
-    g_assert_true(gw_dump_file_import_traces(GLOBALS->dump_file, nodes, NULL));
+    GwNode *nodes[1] = {np};
+    switch (GLOBALS->is_lx2) {
+        case LXT2_IS_VLIST:
+        case LXT2_IS_FST:
+            gw_dump_file_import_traces(GLOBALS->dump_file, nodes, NULL);
+            return;
+        default:
+            g_return_if_reached();
+            break;
+    }
 }
 
 /*
@@ -40,24 +47,27 @@ void import_lx2_trace(GwNode *np)
  */
 void lx2_set_fac_process_mask(GwNode *np)
 {
-    if (import_nodes == NULL) {
-        import_nodes = g_ptr_array_new();
+    /* TODO: This functionality may not have a direct equivalent in modern API */
+    switch (GLOBALS->is_lx2) {
+        case LXT2_IS_VLIST:
+        case LXT2_IS_FST:
+            /* No direct equivalent in modern API - functionality may need reimplementation */
+            return;
+        default:
+            g_return_if_reached();
+            break;
     }
-
-    g_ptr_array_add(import_nodes, np);
 }
 
 void lx2_import_masked(void)
 {
-    if (import_nodes == NULL) {
-        return;
+    switch (GLOBALS->is_lx2) {
+        case LXT2_IS_VLIST:
+        case LXT2_IS_FST:
+            gw_dump_file_import_all(GLOBALS->dump_file, NULL);
+            return;
+        default:
+            g_return_if_reached();
+            break;
     }
-
-    g_ptr_array_add(import_nodes, NULL);
-
-    // TODO: report errors
-    g_assert_true(
-        gw_dump_file_import_traces(GLOBALS->dump_file, (GwNode **)import_nodes->pdata, NULL));
-
-    g_ptr_array_set_size(import_nodes, 0);
 }

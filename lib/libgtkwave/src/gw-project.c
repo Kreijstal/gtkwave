@@ -15,6 +15,11 @@ struct _GwProject
     GwMarker *baseline_marker;
     GwMarker *ghost_marker;
     GwNamedMarkers *named_markers;
+    
+    /* Phase 2 additions */
+    GwHierpackContext *hierpack_context;
+    GwInteractiveLoader *interactive_loader;
+    GwSharedMemory *shared_memory;
 };
 
 G_DEFINE_TYPE(GwProject, gw_project, G_TYPE_OBJECT)
@@ -26,6 +31,9 @@ enum
     PROP_BASELINE_MARKER,
     PROP_GHOST_MARKER,
     PROP_NAMED_MARKERS,
+    PROP_HIERPACK_CONTEXT,
+    PROP_INTERACTIVE_LOADER,
+    PROP_SHARED_MEMORY,
     N_PROPERTIES,
 };
 
@@ -55,6 +63,17 @@ static void gw_project_dispose(GObject *object)
     g_clear_object(&self->baseline_marker);
     g_clear_object(&self->ghost_marker);
     g_clear_object(&self->named_markers);
+    
+    /* Phase 2 additions */
+    if (self->hierpack_context != NULL) {
+        gw_hierpack_context_free(self->hierpack_context);
+        self->hierpack_context = NULL;
+    }
+    g_clear_object(&self->interactive_loader);
+    if (self->shared_memory != NULL) {
+        gw_shared_memory_free(self->shared_memory);
+        self->shared_memory = NULL;
+    }
 
     G_OBJECT_CLASS(gw_project_parent_class)->dispose(object);
 }
@@ -85,6 +104,18 @@ static void gw_project_get_property(GObject *object,
 
         case PROP_NAMED_MARKERS:
             g_value_set_object(value, gw_project_get_named_markers(self));
+            break;
+            
+        case PROP_HIERPACK_CONTEXT:
+            g_value_set_pointer(value, gw_project_get_hierpack_context(self));
+            break;
+            
+        case PROP_INTERACTIVE_LOADER:
+            g_value_set_object(value, gw_project_get_interactive_loader(self));
+            break;
+            
+        case PROP_SHARED_MEMORY:
+            g_value_set_pointer(value, gw_project_get_shared_memory(self));
             break;
 
         default:
@@ -156,6 +187,37 @@ static void gw_project_class_init(GwProjectClass *klass)
                                                          "The named markers",
                                                          GW_TYPE_NAMED_MARKERS,
                                                          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+   /**
+    * GwProject:hierpack-context:
+    *
+    * The hierarchy compression context.
+    */
+   properties[PROP_HIERPACK_CONTEXT] = g_param_spec_pointer("hierpack-context",
+                                                           "Hierpack context",
+                                                           "The hierarchy compression context",
+                                                           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+   /**
+    * GwProject:interactive-loader:
+    *
+    * The interactive loader.
+    */
+   properties[PROP_INTERACTIVE_LOADER] = g_param_spec_object("interactive-loader",
+                                                            "Interactive loader",
+                                                            "The interactive loader",
+                                                            GW_TYPE_INTERACTIVE_LOADER,
+                                                            G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+   /**
+    * GwProject:shared-memory:
+    *
+    * The shared memory segment.
+    */
+   properties[PROP_SHARED_MEMORY] = g_param_spec_pointer("shared-memory",
+                                                        "Shared memory",
+                                                        "The shared memory segment",
+                                                        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
     /**
      * GwProject::unnamed-marker-changed:
@@ -275,4 +337,93 @@ GwNamedMarkers *gw_project_get_named_markers(GwProject *self)
     g_return_val_if_fail(GW_IS_PROJECT(self), NULL);
 
     return self->named_markers;
+}
+
+/**
+ * gw_project_get_hierpack_context:
+ * @self: A #GwProject.
+ *
+ * Returns the hierarchy compression context.
+ *
+ * Returns: (transfer none): The hierarchy compression context.
+ */
+GwHierpackContext *gw_project_get_hierpack_context(GwProject *self)
+{
+    g_return_val_if_fail(GW_IS_PROJECT(self), NULL);
+    return self->hierpack_context;
+}
+
+/**
+ * gw_project_set_hierpack_context:
+ * @self: A #GwProject.
+ * @context: (transfer full): The hierarchy compression context.
+ *
+ * Sets the hierarchy compression context.
+ */
+void gw_project_set_hierpack_context(GwProject *self, GwHierpackContext *context)
+{
+    g_return_if_fail(GW_IS_PROJECT(self));
+    
+    if (self->hierpack_context != NULL) {
+        gw_hierpack_context_free(self->hierpack_context);
+    }
+    self->hierpack_context = context;
+}
+
+/**
+ * gw_project_get_interactive_loader:
+ * @self: A #GwProject.
+ *
+ * Returns the interactive loader.
+ *
+ * Returns: (transfer none): The interactive loader.
+ */
+GwInteractiveLoader *gw_project_get_interactive_loader(GwProject *self)
+{
+    g_return_val_if_fail(GW_IS_PROJECT(self), NULL);
+    return self->interactive_loader;
+}
+
+/**
+ * gw_project_set_interactive_loader:
+ * @self: A #GwProject.
+ * @loader: (transfer full): The interactive loader.
+ *
+ * Sets the interactive loader.
+ */
+void gw_project_set_interactive_loader(GwProject *self, GwInteractiveLoader *loader)
+{
+    g_return_if_fail(GW_IS_PROJECT(self));
+    g_set_object(&self->interactive_loader, loader);
+}
+
+/**
+ * gw_project_get_shared_memory:
+ * @self: A #GwProject.
+ *
+ * Returns the shared memory segment.
+ *
+ * Returns: (transfer none): The shared memory segment.
+ */
+GwSharedMemory *gw_project_get_shared_memory(GwProject *self)
+{
+    g_return_val_if_fail(GW_IS_PROJECT(self), NULL);
+    return self->shared_memory;
+}
+
+/**
+ * gw_project_set_shared_memory:
+ * @self: A #GwProject.
+ * @shm: (transfer full): The shared memory segment.
+ *
+ * Sets the shared memory segment.
+ */
+void gw_project_set_shared_memory(GwProject *self, GwSharedMemory *shm)
+{
+    g_return_if_fail(GW_IS_PROJECT(self));
+    
+    if (self->shared_memory != NULL) {
+        gw_shared_memory_free(self->shared_memory);
+    }
+    self->shared_memory = shm;
 }

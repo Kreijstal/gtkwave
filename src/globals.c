@@ -33,10 +33,12 @@
 #include "tree.h"
 #include "vcd.h"
 #include "vcd_saver.h"
+#include "gw-vlist.h"
 #include "lx2.h"
 #include "signal_list.h"
 #include "dump_file_main.h"
 #include "gw-time-display.h"
+#include "hierpack.h"
 
 #ifdef __MINGW32__
 #define sleep(x) Sleep(x * 1000)
@@ -45,6 +47,9 @@
 #if !defined __MINGW32__
 #include <unistd.h>
 #include <sys/mman.h>
+#else
+#include <windows.h>
+#include <io.h>
 #endif
 
 struct Global *GLOBALS = NULL;
@@ -53,10 +58,7 @@ struct Global *GLOBALS = NULL;
 static const struct Global globals_base_values = {
     NULL, // project
     NULL, // dump_file
-    {
-        .vlist_compression_level = 4,
-        .vcd_warning_filesize = 256,
-    }, // settings
+    {0}, // settings
 
     /*
      * analyzer.c
@@ -149,9 +151,13 @@ static const struct Global globals_base_values = {
      * file.c
      */
     NULL, /* pFileChoose */
+    NULL, /* pFileChooseFilterName */
+    NULL, /* pPatternSpec */
     0, /* fs_file_c_1 86 */
     NULL, /* fileselbox_text 87 */
     0, /* filesel_ok 88 */
+    0, /* cleanup_file_c_2 89 */
+    0, /* bad_cleanup_file_c1 */
 
     /*
      * fonts.c
@@ -164,10 +170,34 @@ static const struct Global globals_base_values = {
     1, /* use_pango_fonts */
 
     /*
+     * fst.c
+     */
+    0, /* nonimplicit_direction_encountered */
+    0, /* supplemental_datatypes_encountered */
+    0, /* supplemental_vartypes_encountered */
+    0, /* is_vhdl_component_format */
+    NULL, /* xl_enum_filter */
+    0, /* num_xl_enum_filter */
+    NULL, /* enum_nptrs_jrb */
+
+    /*
      * globals.c
      */
     NULL, /* dead_context */
     NULL, /* gtk_context_bridge_ptr */
+
+    /*
+     * hierpack.c
+     */
+    NULL, /* hp_buf */
+    NULL, /* hp_offs */
+    0, /* hp_prev */
+    0, /* hp_buf_siz */
+    NULL, /* fmem_buf */
+    0, /* fmem_buf_siz */
+    0, /* fmem_buf_offs */
+    0, /* fmem_uncompressed_siz */
+    0, /* disable_auto_comphier */
 
     /*
      * logfile.c
@@ -191,6 +221,13 @@ static const struct Global globals_base_values = {
     0, /* dumpfile_is_modified */
     NULL, /* missing_file_toolbar */
     NULL, /* argvlist */
+#if defined(HAVE_LIBTCL)
+    NULL, /* interp */
+#endif
+    NULL, /* repscript_name */
+    500, /* repscript_period */
+    NULL, /* tcl_init_cmd */
+    0, /* tcl_running */
     0, /* block_xy_update */
     NULL, /* winname */
     0, /* num_notebook_pages */
@@ -475,10 +512,25 @@ static const struct Global globals_base_values = {
     0, /* strace_current_window */
     1, /* strace_repeat_count */
 
+/*
+ * symbol.c
+ */
+    NULL, /* sym_hash 424 */
+    0, /* facs_are_sorted 426 */
+    0, /* facs_have_symbols_state_machine */
+    0, /* longestname 429 */
+    0, /* hashcache 432 */
+
     /*
      * tcl_commands.c
      */
     NULL, /* previous_braced_tcl_string */
+
+    /*
+     * tcl_helper.c
+     */
+    0, /* in_tcl_callback */
+    0, /* tcl_menu_toggle_item */
 
     /*
      * timeentry.c
@@ -500,17 +552,39 @@ static const struct Global globals_base_values = {
     NULL, /* sig_store_translate; */
     NULL, /* sig_selection_translate */
 
-    /*
-     * tree.c
-     */
+/*
+ * tree.c
+ */
+#ifdef _WAVE_HAVE_JUDY
+    NULL, /* sym_tree */
+    NULL, /* sym_tree_addresses */
+#endif
+    NULL, /* mod_tree_parent */
+    NULL, /* module_tree_c_1 444 */
+    0, /* module_len_tree_c_1 445 */
+    NULL, /* terminals_tchain_tree_c_1 446 */
     '.', /* hier_delimeter 447 */
     0, /* hier_was_explicitly_set 448 */
+    0x00, /* alt_hier_delimeter 449 */
     NULL, /* talloc_pool_base */
     0, /* talloc_idx */
     NULL, /* sst_exclude_filename */
     0, /* exclhiermask */
     NULL, /* exclcompname */
     NULL, /* exclinstname */
+
+/*
+ * tree_component.c
+ */
+#ifdef _WAVE_HAVE_JUDY
+    NULL, /* comp_name_judy */
+#else
+    NULL, /* comp_name_jrb */
+#endif
+    NULL, /* comp_name_idx */
+    0, /* comp_name_serial */
+    0, /* comp_name_total_stringmem */
+    0, /* comp_name_longest */
 
     /*
      * treesearch_gtk2.c
@@ -544,6 +618,8 @@ static const struct Global globals_base_values = {
     {0, 0, NULL, NULL, NULL, NULL, 0, 0}, /* tcache_treesearch_gtk2_c_2 470 */
     NULL, /* dnd_sigview */
     NULL, /* sst_vpaned */
+    0, /* fetchlow */
+    0, /* fetchhigh */
     NULL, /* treestore_main */
     NULL, /* treeview_main */
     SST_ACTION_INSERT, /* sst_dbl_action_type */
@@ -566,10 +642,14 @@ static const struct Global globals_base_values = {
     /*
      * vcd.c
      */
+    0, /* do_hier_compress */
+    NULL, /* prev_hier_uncompressed_name */
     NULL, /* vcd_jmp_buf */
+    -1, /* vcd_warning_filesize 472 */
     1, /* autocoalesce 473 */
     0, /* autocoalesce_reversal */
     0, /* convert_to_reals 475 */
+    0, /* escaped_names_found_vcd_c_1 494 */
 
     /*
      * vcd_saver.c
@@ -578,6 +658,12 @@ static const struct Global globals_base_values = {
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, /* buf_vcd_saver_c_3 580 */
     NULL, /* hp_vcd_saver_c_1 581 */
     NULL, /* nhold_vcd_saver_c_1 582 */
+
+    /*
+     * vlist.c
+     */
+    0, /* vlist_bytes_written */
+    4, /* vlist_compression_depth 583 */
 
     /*
      * wavewindow.c
@@ -864,6 +950,9 @@ void reload_into_new_context_2(void)
     }
 
     printf("GTKWAVE | Reloading waveform...\n");
+    gtkwavetcl_setvar(WAVE_TCLCB_RELOAD_BEGIN,
+                      GLOBALS->loaded_file_name,
+                      WAVE_TCLCB_RELOAD_BEGIN_FLAGS);
 
     /* Save state to file */
     save_tmpfilename = tmpnam_2(NULL, &fd_dummy);
@@ -874,6 +963,7 @@ void reload_into_new_context_2(void)
             perror("Why");
             free_2(save_tmpfilename);
         }
+        gtkwavetcl_setvar_nonblocking(WAVE_TCLCB_ERROR, "reload failed", WAVE_TCLCB_ERROR_FLAGS);
         return;
     }
     if (fd_dummy >= 0)
@@ -924,6 +1014,11 @@ void reload_into_new_context_2(void)
 
     /* SMP */
     new_globals->num_cpus = GLOBALS->num_cpus;
+
+    /* tcl interpreter */
+#if defined(HAVE_LIBTCL)
+    new_globals->interp = GLOBALS->interp;
+#endif
 
     /* Marker positions */
     // TODO: fix
@@ -1026,6 +1121,8 @@ void reload_into_new_context_2(void)
     new_globals->clipboard_mouseover = GLOBALS->clipboard_mouseover;
     new_globals->keep_xz_colors = GLOBALS->keep_xz_colors;
     new_globals->disable_tooltips = GLOBALS->disable_tooltips;
+    new_globals->do_hier_compress = GLOBALS->do_hier_compress;
+    new_globals->disable_auto_comphier = GLOBALS->disable_auto_comphier;
     new_globals->do_initial_zoom_fit = GLOBALS->do_initial_zoom_fit;
     new_globals->do_initial_zoom_fit_used = GLOBALS->do_initial_zoom_fit_used;
     new_globals->do_resize_signals = GLOBALS->do_resize_signals;
@@ -1054,11 +1151,14 @@ void reload_into_new_context_2(void)
     new_globals->use_maxtime_display = GLOBALS->use_maxtime_display;
     new_globals->use_nonprop_fonts = GLOBALS->use_nonprop_fonts;
     new_globals->use_roundcaps = GLOBALS->use_roundcaps;
+    new_globals->vcd_warning_filesize = GLOBALS->vcd_warning_filesize;
     new_globals->vector_padding = GLOBALS->vector_padding;
     new_globals->settings = GLOBALS->settings;
+    new_globals->vlist_compression_depth = GLOBALS->vlist_compression_depth;
     new_globals->wave_scrolling = GLOBALS->wave_scrolling;
     new_globals->do_zoom_center = GLOBALS->do_zoom_center;
     new_globals->zoom_pow10_snap = GLOBALS->zoom_pow10_snap;
+    new_globals->alt_hier_delimeter = GLOBALS->alt_hier_delimeter;
     new_globals->cursor_snap = GLOBALS->cursor_snap;
     new_globals->hier_delimeter = GLOBALS->hier_delimeter;
     new_globals->hier_was_explicitly_set = GLOBALS->hier_was_explicitly_set;
@@ -1091,6 +1191,12 @@ void reload_into_new_context_2(void)
                              &GLOBALS->fontname_signals);
     strcpy2_into_new_context(new_globals, &new_globals->fontname_waves, &GLOBALS->fontname_waves);
     strcpy2_into_new_context(new_globals, &new_globals->cutcopylist, &GLOBALS->cutcopylist);
+    strcpy2_into_new_context(new_globals, &new_globals->tcl_init_cmd, &GLOBALS->tcl_init_cmd);
+    strcpy2_into_new_context(new_globals, &new_globals->repscript_name, &GLOBALS->repscript_name);
+    new_globals->repscript_period = GLOBALS->repscript_period;
+    strcpy2_into_new_context(new_globals,
+                             &new_globals->pFileChooseFilterName,
+                             &GLOBALS->pFileChooseFilterName);
 
     /* search.c */
     new_globals->regex_which_search_c_1 =
@@ -1221,6 +1327,22 @@ void reload_into_new_context_2(void)
                                  &new_globals->unoptimized_vcd_file_name,
                                  &GLOBALS->unoptimized_vcd_file_name);
     }
+
+    if (GLOBALS->enum_nptrs_jrb) {
+        jrb_free_tree(GLOBALS->enum_nptrs_jrb);
+        GLOBALS->enum_nptrs_jrb = NULL;
+    }
+
+#ifdef _WAVE_HAVE_JUDY
+    if (GLOBALS->num_xl_enum_filter) {
+        int ie;
+        for (ie = 0; ie < GLOBALS->num_xl_enum_filter; ie++) {
+            JudyHSFreeArray(&GLOBALS->xl_enum_filter[ie], NULL);
+        }
+
+        GLOBALS->num_xl_enum_filter = 0;
+    }
+#endif
 
     g_clear_object(&GLOBALS->dump_file);
 
@@ -1418,7 +1540,8 @@ void reload_into_new_context_2(void)
         }
     }
 
-    time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
+    /* deallocate the symbol hash table */
+    sym_hash_destroy(GLOBALS);
 
     /* Setup timings we probably need to redraw here */
     GLOBALS->tims.last = gw_time_range_get_end(time_range);
@@ -1472,6 +1595,7 @@ void reload_into_new_context_2(void)
     gtk_widget_hide(GLOBALS->expanderwindow);
     gtk_container_remove(GTK_CONTAINER(GLOBALS->expanderwindow), GLOBALS->sstpane);
     GLOBALS->sstpane = treeboxframe("SST");
+
     gtk_container_add(GTK_CONTAINER(GLOBALS->expanderwindow), GLOBALS->sstpane);
     gtk_paned_set_position(GLOBALS->sst_vpaned, pane_pos);
     gtk_widget_show(GLOBALS->expanderwindow);
@@ -1577,6 +1701,9 @@ void reload_into_new_context_2(void)
     GLOBALS->splash_disable = cached_splash_disable;
 
     printf("GTKWAVE | ...waveform reloaded\n");
+    gtkwavetcl_setvar(WAVE_TCLCB_RELOAD_END,
+                      GLOBALS->loaded_file_name,
+                      WAVE_TCLCB_RELOAD_END_FLAGS);
 
     /* update lower signal set in SST to correct position */
     if ((GLOBALS->dnd_sigview) && ((treeview_vadj_value != 0.0) || (treeview_hadj_value != 0.0))) {
@@ -1911,5 +2038,6 @@ void set_GLOBALS_x(struct Global *g, const char *file, int line)
         }
 
         sprintf(sstr, "%d", GLOBALS->this_context_page);
+        gtkwavetcl_setvar(WAVE_TCLCB_CURRENT_ACTIVE_TAB, sstr, WAVE_TCLCB_CURRENT_ACTIVE_TAB_FLAGS);
     }
 }

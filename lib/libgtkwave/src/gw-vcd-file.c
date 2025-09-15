@@ -450,7 +450,19 @@ static void gw_vcd_file_import_trace(GwVcdFile *self, GwNode *np)
             return;
         }
 
-        g_error("Error in decompressing vlist for '%s'", np->nname);
+        g_warning("Error in decompressing vlist for '%s' - creating minimal trace", np->nname);
+        
+        /* Create minimal valid trace when vlist decompression fails */
+        GwHistEnt *he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
+        if (he) {
+            he->time = 0;
+            he->v.h_val = GW_BIT_X; /* Unknown value */
+            he->next = NULL;
+            
+            np->head.next = he;
+            np->curr = he;
+        }
+        return;
     }
 
     g_clear_object(&reader);

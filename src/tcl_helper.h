@@ -12,6 +12,27 @@
 
 #include <config.h>
 
+/* TCL callback constants - stubs for compilation */
+#define WAVE_TCLCB_RELOAD_BEGIN "WAVE_TCLCB_RELOAD_BEGIN"
+#define WAVE_TCLCB_RELOAD_BEGIN_FLAGS 0
+#define WAVE_TCLCB_RELOAD_END "WAVE_TCLCB_RELOAD_END"
+#define WAVE_TCLCB_RELOAD_END_FLAGS 0
+#define WAVE_TCLCB_ERROR "WAVE_TCLCB_ERROR"
+#define WAVE_TCLCB_ERROR_FLAGS 0
+#define WAVE_TCLCB_CURRENT_ACTIVE_TAB "WAVE_TCLCB_CURRENT_ACTIVE_TAB"
+#define WAVE_TCLCB_CURRENT_ACTIVE_TAB_FLAGS 0
+#define WAVE_TCLCB_QUIT_PROGRAM "WAVE_TCLCB_QUIT_PROGRAM"
+#define WAVE_TCLCB_QUIT_PROGRAM_FLAGS 0
+#define WAVE_TCLCB_CLOSE_TAB_NUMBER "WAVE_TCLCB_CLOSE_TAB_NUMBER"
+#define WAVE_TCLCB_CLOSE_TAB_NUMBER_FLAGS 0
+#define WAVE_TCLCB_OPEN_TRACE_GROUP "WAVE_TCLCB_OPEN_TRACE_GROUP"
+#define WAVE_TCLCB_OPEN_TRACE_GROUP_FLAGS 0
+#define WAVE_TCLCB_CLOSE_TRACE_GROUP "WAVE_TCLCB_CLOSE_TRACE_GROUP"
+#define WAVE_TCLCB_CLOSE_TRACE_GROUP_FLAGS 0
+#define WAVE_TCLCB_TIMER_PERIOD "WAVE_TCLCB_TIMER_PERIOD"
+#define WAVE_TCLCB_TIMER_PERIOD_FLAGS 0
+#define WAVE_TCLCB_TIMER_PERIOD_INIT "1000"
+
 #define WAVE_OE_ME \
     if (one_entry) { \
         if (!mult_entry) { \
@@ -76,5 +97,9 @@ char **zSplitTclList(const char *list, int *argcPtr);
 char *make_single_tcl_list_name(char *s, char *opt_value, int promote_to_bus, int preserve_range);
 
 char *rpc_script_execute(const char *nam);
+
+/* TCL helper function stubs */
+const char *gtkwavetcl_setvar(const char *name1, const char *val, int flags);
+const char *gtkwavetcl_setvar_nonblocking(const char *name1, const char *val, int flags);
 
 #endif

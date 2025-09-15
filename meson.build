@@ -38,6 +38,9 @@ bzip2_req = '>=1.0.0'
 glib_dep = dependency('glib-2.0', version: glib_req)
 gobject_dep = dependency('gobject-2.0', version: glib_req)
 gtk_dep = dependency('gtk+-3.0', version: gtk_req)
+
+# Gettext for internationalization - disabled for now
+# gettext_dep = dependency('gettext')
 gtk4_dep = dependency('gtk4', version: gtk4_req)
 gtk_unix_print_dep = dependency(
     'gtk+-unix-print-3.0',
@@ -132,6 +135,11 @@ config.set('WAVE_GTK_UNIX_PRINT', gtk_unix_print_dep.found())
 config.set('WAVE_USE_STRUCT_PACKING', get_option('struct_packing'))
 config.set('WAVE_MANYMARKERS_MODE', get_option('manymarkers'))
 config.set('WAVE_DISABLE_FAST_TREE', not get_option('fasttree'))
+
+# Interactive VCD and hierarchy compression options
+config.set('HAVE_INTERACTIVE_VCD', get_option('interactive-vcd'))
+config.set('HAVE_HIERPACK', get_option('hierpack'))
+config.set('HAVE_SHARED_MEMORY', get_option('shared-memory'))
 
 # Check functions
 

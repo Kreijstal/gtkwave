@@ -14,11 +14,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <regex.h>
+#include <setjmp.h>
+
+#define VCD_SIZE_WARN 100 /* Default warning size in MB for VCD files */
+
 
 #if defined __MINGW32__
 #include <windows.h>
 #include <io.h>
-#undef interface
 #endif
 
 #define XXX_GDK_DRAWABLE(x) x
@@ -55,6 +58,7 @@
 #include "tree.h"
 #include "vcd.h"
 #include "vcd_saver.h"
+#include "gw-vlist.h"
 #include "version.h"
 
 #ifdef _WAVE_HAVE_JUDY
@@ -72,12 +76,10 @@
 typedef struct
 {
     gboolean vlist_prepack;
-    gint vlist_compression_level;
-
     gboolean preserve_glitches;
     gboolean preserve_glitches_real;
-
-    gsize vcd_warning_filesize;
+    gint vlist_compression_level;
+    guint vcd_warning_filesize;
 } Settings;
 
 struct Global
@@ -175,10 +177,14 @@ struct Global
     /*
      * file.c
      */
-    GtkFileChooserNative *pFileChoose;
+    GtkWidget *pFileChoose;
+    char *pFileChooseFilterName;
+    GPatternSpec *pPatternSpec;
     GtkWidget *fs_file_c_1; /* from file.c 87 */
     char **fileselbox_text; /* from file.c 88 */
     char filesel_ok; /* from file.c 89 */
+    void (*cleanup_file_c_2)(void); /* from file.c 90 */
+    void (*bad_cleanup_file_c_1)(void); /* from file.c 91 */
 
     /*
      * fonts.c
@@ -191,12 +197,40 @@ struct Global
     char use_pango_fonts;
 
     /*
+     * fst.c
+     */
+    char nonimplicit_direction_encountered;
+    char supplemental_datatypes_encountered;
+    char supplemental_vartypes_encountered;
+    char is_vhdl_component_format;
+#ifdef _WAVE_HAVE_JUDY
+    Pvoid_t *xl_enum_filter;
+#else
+    struct xl_tree_node **xl_enum_filter;
+#endif
+    int num_xl_enum_filter;
+    JRB enum_nptrs_jrb;
+
+    /*
      * globals.c
      */
     struct Global **
         *dead_context; /* for deallocating tabbed contexts later (when no race conditions exist) */
     struct Global **gtk_context_bridge_ptr; /* from globals.c, migrates to reloaded contexts to link
                                                buttons to ctx */
+
+    /*
+     * hierpack.c
+     */
+    unsigned char *hp_buf;
+    size_t *hp_offs;
+    size_t hp_prev;
+    size_t hp_buf_siz;
+    unsigned char *fmem_buf;
+    size_t fmem_buf_siz;
+    size_t fmem_buf_offs;
+    size_t fmem_uncompressed_siz;
+    char disable_auto_comphier;
 
     /*
      * logfile.c
@@ -220,6 +254,13 @@ struct Global
     gboolean dumpfile_is_modified;
     GtkWidget *missing_file_toolbar;
     char *argvlist;
+#ifdef HAVE_LIBTCL
+    Tcl_Interp *interp;
+#endif
+    char *repscript_name;
+    unsigned int repscript_period;
+    char *tcl_init_cmd;
+    char tcl_running;
     char block_xy_update;
     char *winname;
     unsigned int num_notebook_pages;
@@ -469,10 +510,25 @@ struct Global
     int strace_current_window;
     int strace_repeat_count;
 
+/*
+ * symbol.c
+ */
+    GwSymbol **sym_hash; /* from symbol.c 453 */
+    char facs_are_sorted; /* from symbol.c 455 */
+    char facs_have_symbols_state_machine; /* from symbol.c */
+    int longestname; /* from symbol.c 458 */
+    int hashcache; /* from symbol.c 461 */
+
     /*
      * tcl_commands.c
      */
     char *previous_braced_tcl_string;
+
+    /*
+     * tcl_helper.c
+     */
+    char in_tcl_callback;
+    char tcl_menu_toggle_item;
 
     /*
      * timeentry.c
@@ -497,14 +553,36 @@ struct Global
 /*
  * tree.c
  */
+#ifdef _WAVE_HAVE_JUDY
+    Pvoid_t sym_tree;
+    Pvoid_t sym_tree_addresses;
+#endif
+    GwTreeNode *mod_tree_parent; /* from tree.c */
+    char *module_tree_c_1; /* from tree.c 474 */
+    int module_len_tree_c_1; /* from tree.c 475 */
+    GwTreeNode *terminals_tchain_tree_c_1; /* from tree.c 476 */
     char hier_delimeter; /* from tree.c 477 */
     char hier_was_explicitly_set; /* from tree.c 478 */
+    char alt_hier_delimeter; /* from tree.c 479 */
     unsigned char *talloc_pool_base;
     size_t talloc_idx;
     char *sst_exclude_filename;
     uint64_t exclhiermask;
     JRB exclcompname;
     JRB exclinstname;
+
+/*
+ * tree_component.c
+ */
+#ifdef _WAVE_HAVE_JUDY
+    Pvoid_t comp_name_judy;
+#else
+    JRB comp_name_jrb;
+#endif
+    char **comp_name_idx;
+    int comp_name_serial;
+    size_t comp_name_total_stringmem;
+    int comp_name_longest;
 
     /*
      * treesearch_gtk2.c
@@ -538,6 +616,8 @@ struct Global
     Traces tcache_treesearch_gtk2_c_2; /* from treesearch_gtk2.c 500 */
     GtkWidget *dnd_sigview; /* from treesearch_gtk2.c */
     GtkPaned *sst_vpaned; /* from treesearch_gtk2.c */
+    int fetchlow;
+    int fetchhigh;
     GtkTreeStore *treestore_main;
     GtkWidget *treeview_main;
     enum sst_cb_action sst_dbl_action_type;
@@ -560,10 +640,14 @@ struct Global
     /*
      * vcd.c
      */
+    unsigned char do_hier_compress; /* from vcd.c */
+    char *prev_hier_uncompressed_name; /* from vcd.c */
     jmp_buf *vcd_jmp_buf; /* from vcd.c */
+    int vcd_warning_filesize; /* from vcd.c 502 */
     char autocoalesce; /* from vcd.c 503 */
     char autocoalesce_reversal; /* from vcd.c 504 */
     char convert_to_reals; /* from vcd.c 506 */
+    int escaped_names_found_vcd_c_1; /* from vcd.c 528 */
 
     /*
      * vcd_saver.c
@@ -572,6 +656,12 @@ struct Global
     char buf_vcd_saver_c_3[16]; /* from vcd_saver.c 631 */
     struct vcdsav_tree_node **hp_vcd_saver_c_1; /* from vcd_saver.c 632 */
     struct namehier *nhold_vcd_saver_c_1; /* from vcd_saver.c 633 */
+
+    /*
+     * vlist.c
+     */
+    off_t vlist_bytes_written;
+    int vlist_compression_depth; /* from vlist.c 634 */
 
     /*
      * wavewindow.c
@@ -652,6 +742,12 @@ struct Global
     char use_gestures;
     gboolean use_dark;
     gboolean save_on_exit;
+
+    /*
+     * vcd_partial.c compatibility
+     */
+    int partial_vcd;
+    int is_vcd;
 
     /*
      * zoombuttons.c

@@ -1,4 +1,5 @@
 #include "gw-vcd-loader.h"
+#include "gw-vcd-loader-private.h"
 #include "gw-vcd-file.h"
 #include "gw-vcd-file-private.h"
 #include "gw-util.h"
@@ -51,82 +52,7 @@ struct vcdsymbol
 #define RCV_L (1 | (5 << 1))
 #define RCV_D (1 | (6 << 1))
 
-struct _GwVcdLoader
-{
-    GwLoader parent_instance;
 
-    FILE *vcd_handle;
-    gboolean is_compressed;
-    off_t vcd_fsiz;
-
-    gboolean header_over;
-
-    gboolean vlist_prepack;
-    gint vlist_compression_level;
-    GwVlist *time_vlist;
-    unsigned int time_vlist_count;
-
-    off_t vcdbyteno;
-    char *vcdbuf;
-    char *vst;
-    char *vend;
-
-    int error_count;
-    gboolean err;
-
-    GwTime current_time;
-
-    struct vcdsymbol *pv;
-    struct vcdsymbol *rootv;
-
-    int T_MAX_STR;
-    char *yytext;
-    int yylen;
-
-    struct vcdsymbol *vcdsymroot;
-    struct vcdsymbol *vcdsymcurr;
-
-    int numsyms;
-    struct vcdsymbol **symbols_sorted;
-    struct vcdsymbol **symbols_indexed;
-
-    guint vcd_minid;
-    guint vcd_maxid;
-    guint vcd_hash_max;
-    gboolean vcd_hash_kill;
-    gint hash_cache;
-    GwSymbol **sym_hash;
-
-    char *varsplit;
-    char *vsplitcurr;
-    int var_prevch;
-
-    gboolean already_backtracked;
-
-    GSList *sym_chain;
-
-    GwBlackoutRegions *blackout_regions;
-
-    GwTime time_scale;
-    GwTimeDimension time_dimension;
-    GwTime start_time;
-    GwTime end_time;
-    GwTime global_time_offset;
-
-    GwTreeNode *tree_root;
-
-    guint numfacs;
-    gchar *prev_hier_uncompressed_name;
-
-    GwTreeNode *terminals_chain;
-    GwTreeBuilder *tree_builder;
-
-    char *module_tree;
-    int module_len_tree;
-
-    gboolean has_escaped_names;
-    guint warning_filesize;
-};
 
 G_DEFINE_TYPE(GwVcdLoader, gw_vcd_loader, GW_TYPE_LOADER)
 
@@ -154,7 +80,7 @@ static void malform_eof_fix(GwVcdLoader *self)
 
 #undef VCD_BSEARCH_IS_PERFECT /* bsearch is imperfect under linux, but OK under AIX */
 
-static void vcd_build_symbols(GwVcdLoader *self);
+void vcd_build_symbols(GwVcdLoader *self);
 static void vcd_cleanup(GwVcdLoader *self);
 static void evcd_strcpy(char *dst, char *src);
 
@@ -587,6 +513,11 @@ static void getch_free(GwVcdLoader *self)
 
 static int getch_fetch(GwVcdLoader *self)
 {
+    /* Check for override function */
+    if (self->getch_fetch_override) {
+        return self->getch_fetch_override(self);
+    }
+
     size_t rd;
 
     errno = 0;
@@ -948,6 +879,9 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
                     self->yytext + 1);
             malform_eof_fix(self);
         } else {
+            // DEBUG: Print signal value and time
+
+            
             GwNode *n = v->narray[0];
             unsigned int time_delta;
             unsigned int rcv;
@@ -1093,6 +1027,8 @@ static void parse_valuechange(GwVcdLoader *self)
         case 'X':
         case 'z':
         case 'Z':
+            // DEBUG: Print time when value change occurs
+
         case 'h':
         case 'H':
         case 'u':
@@ -1811,7 +1747,7 @@ static void vcd_parse_string(GwVcdLoader *self)
     }
 }
 
-static void vcd_parse(GwVcdLoader *self, GError **error)
+void vcd_parse(GwVcdLoader *self, GError **error)
 {
     g_assert(error != NULL && *error == NULL);
 
@@ -1922,7 +1858,7 @@ static GwSymbol *symfind_unsorted(GwVcdLoader *self, char *s)
     return NULL; /* not found, add here if you want to add*/
 }
 
-static void vcd_build_symbols(GwVcdLoader *self)
+void vcd_build_symbols(GwVcdLoader *self)
 {
     int j;
     int max_slen = -1;
@@ -2205,7 +2141,7 @@ static void vcd_cleanup(GwVcdLoader *self)
     g_clear_pointer(&self->yytext, g_free);
 }
 
-static GwFacs *vcd_sortfacs(GwVcdLoader *self)
+GwFacs *vcd_sortfacs(GwVcdLoader *self)
 {
     GwFacs *facs = gw_facs_new(self->numfacs);
 
@@ -2397,7 +2333,7 @@ static void treenamefix(GwTreeNode *t, char delimiter)
     treenamefix_str(t->name, delimiter);
 }
 
-static GwTree *vcd_build_tree(GwVcdLoader *self, GwFacs *facs)
+GwTree *vcd_build_tree(GwVcdLoader *self, GwFacs *facs)
 {
     // TODO: replace module_tree by GString to dynamically allocate enough memory
     self->module_tree = g_malloc0(65536);

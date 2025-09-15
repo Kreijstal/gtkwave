@@ -20,8 +20,39 @@
 #include "lx2.h"
 #include "busy.h"
 #include "debug.h"
+#include "hierpack.h"
 #include "tcl_helper.h"
+#include "tcl_support_commands.h"
 #include "signal_list.h"
+
+/* Missing constants - TODO: Find proper definitions */
+#define VCDNAM_ESCAPE '\\'
+#define SST_NODE_NOT_EXIST 0
+#define SST_NODE_FOUND 1
+#define SST_TREE_NOT_EXIST 2
+
+/* TCL callback constants for tree operations */
+#define WAVE_TCLCB_TREE_SELECT "WAVE_TCLCB_TREE_SELECT"
+#define WAVE_TCLCB_TREE_SELECT_FLAGS 0
+#define WAVE_TCLCB_TREE_UNSELECT "WAVE_TCLCB_TREE_UNSELECT"
+#define WAVE_TCLCB_TREE_UNSELECT_FLAGS 0
+#define WAVE_TCLCB_TREE_EXPAND "WAVE_TCLCB_TREE_EXPAND"
+#define WAVE_TCLCB_TREE_EXPAND_FLAGS 0
+#define WAVE_TCLCB_TREE_COLLAPSE "WAVE_TCLCB_TREE_COLLAPSE"
+#define WAVE_TCLCB_TREE_COLLAPSE_FLAGS 0
+#define WAVE_TCLCB_TREE_SIG_SELECT "WAVE_TCLCB_TREE_SIG_SELECT"
+#define WAVE_TCLCB_TREE_SIG_SELECT_FLAGS 0
+#define WAVE_TCLCB_TREE_SIG_UNSELECT "WAVE_TCLCB_TREE_SIG_UNSELECT"
+#define WAVE_TCLCB_TREE_SIG_UNSELECT_FLAGS 0
+#define WAVE_TCLCB_TREE_SIG_DOUBLE_CLICK "WAVE_TCLCB_TREE_SIG_DOUBLE_CLICK"
+#define WAVE_TCLCB_TREE_SIG_DOUBLE_CLICK_FLAGS 0
+
+/* Stub function for decorated module cleanup */
+static void decorated_module_cleanup(void)
+{
+    /* TODO: Implement proper decorated module cleanup */
+    g_warning("decorated_module_cleanup not yet implemented");
+}
 #include "gw-fst-file.h"
 
 /* Treesearch is a pop-up window used to select signals.
@@ -48,11 +79,6 @@ enum
     N_COLUMNS
 };
 
-#define SST_NODE_FOUND 0
-#define SST_NODE_CURRENT 2
-#define SST_NODE_NOT_EXIST 1
-#define SST_TREE_NOT_EXIST -1
-
 /* list of autocoalesced (synthesized) filter names that need to be freed at some point) */
 
 void free_afl(void)
@@ -68,10 +94,21 @@ void free_afl(void)
     }
 }
 
+/* count number of nodes in a tree */
+static int count_tree_nodes(GwTreeNode *t)
+{
+    int count = 0;
+    while (t) {
+        count++;
+        t = t->next;
+    }
+    return count;
+}
+
 /* point to pure signame (remove hierarchy) for fill_sig_store() */
 static char *prune_hierarchy(char *nam)
 {
-    char cmpchar = '.';
+    char cmpchar = GLOBALS->alt_hier_delimeter ? GLOBALS->alt_hier_delimeter : '.';
     char *t = nam;
     char *lastmatch = NULL;
 
@@ -129,6 +166,8 @@ void fill_sig_store(void)
     GwTreeNode *t;
     GwTreeNode *t_prev = NULL;
     GtkTreeIter iter;
+    
+
 
     if (GLOBALS->selected_sig_name) {
         free_2(GLOBALS->selected_sig_name);
@@ -138,10 +177,18 @@ void fill_sig_store(void)
     free_afl();
     gtk_list_store_clear(GLOBALS->sig_store_treesearch_gtk2_c_1);
 
-    GwFacs *facs = gw_dump_file_get_facs(GLOBALS->dump_file);
-    gboolean has_supplemental_datatypes =
-        gw_dump_file_has_supplemental_datatypes(GLOBALS->dump_file);
-    gboolean has_supplemental_vartypes = gw_dump_file_has_supplemental_vartypes(GLOBALS->dump_file);
+
+
+    GwFacs *facs = NULL;
+    if (GLOBALS->dump_file) {
+        facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+    }
+    
+    /* For interactive VCD mode without dump file, use fallback */
+    if (!facs) {
+
+        return;
+    }
 
     for (t = GLOBALS->sig_root_treesearch_gtk2_c_1; t != NULL; t = t->next) {
         int i = t->t_which;
@@ -168,11 +215,15 @@ void fill_sig_store(void)
         t_prev = t;
 
         GwSymbol *fac = gw_facs_get(facs, i);
+        if (!fac) {
+            continue; /* Skip invalid symbols */
+        }
 
         varxt = fac->n->varxt;
-        varxt_pnt = varxt
-                        ? varxt_fix(gw_fst_file_get_subvar(GW_FST_FILE(GLOBALS->dump_file), varxt))
-                        : NULL;
+        varxt_pnt = NULL;
+        if (GLOBALS->dump_file && varxt) {
+            varxt_pnt = varxt_fix(gw_fst_file_get_subvar(GW_FST_FILE(GLOBALS->dump_file), varxt));
+        }
 
         vartype = fac->n->vartype;
         if ((vartype < 0) || (vartype > GW_VAR_TYPE_MAX)) {
@@ -225,6 +276,13 @@ void fill_sig_store(void)
               GLOBALS->filter_typ_polarity_treesearch_gtk2_c_1) &&
              (wrexm || (wrexm = wave_regex_match(t->name, WAVE_REGEX_TREE))))) {
             gtk_list_store_prepend(GLOBALS->sig_store_treesearch_gtk2_c_1, &iter);
+
+                    s, 
+                    (((GLOBALS->supplemental_datatypes_encountered) &&
+                      (!GLOBALS->supplemental_vartypes_encountered))
+                         ? (varxt ? varxt_pnt : gw_var_data_type_to_string(vardt))
+                         : gw_var_type_to_string(vartype)),
+                    gw_var_dir_to_string(vardir));
             if (is_tname) {
                 gtk_list_store_set(GLOBALS->sig_store_treesearch_gtk2_c_1,
                                    &iter,
@@ -233,7 +291,8 @@ void fill_sig_store(void)
                                    TREE_COLUMN,
                                    t,
                                    TYPE_COLUMN,
-                                   ((has_supplemental_datatypes && !has_supplemental_vartypes)
+                                   (((GLOBALS->supplemental_datatypes_encountered) &&
+                                     (!GLOBALS->supplemental_vartypes_encountered))
                                         ? (varxt ? varxt_pnt : gw_var_data_type_to_string(vardt))
                                         : gw_var_type_to_string(vartype)),
                                    DIR_COLUMN,
@@ -259,7 +318,8 @@ void fill_sig_store(void)
                                    TREE_COLUMN,
                                    t,
                                    TYPE_COLUMN,
-                                   ((has_supplemental_datatypes && !has_supplemental_vartypes)
+                                   (((GLOBALS->supplemental_datatypes_encountered) &&
+                                     (!GLOBALS->supplemental_vartypes_encountered))
                                         ? (varxt ? varxt_pnt : gw_var_data_type_to_string(vardt))
                                         : gw_var_type_to_string(vartype)),
                                    DIR_COLUMN,
@@ -273,7 +333,9 @@ void fill_sig_store(void)
                 free_2(s);
             }
         }
+
     }
+
 }
 
 /*
@@ -486,6 +548,7 @@ void select_tree_node(char *name)
 
                         GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = t;
                         GLOBALS->sig_root_treesearch_gtk2_c_1 = t->child;
+
                         fill_sig_store();
 
                         return;
@@ -566,7 +629,11 @@ static void XXX_select_row_callback(GtkTreeModel *model, GtkTreePath *path)
     DEBUG(printf("TS: %08x %s\n", t, t->name));
     GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = t;
     GLOBALS->sig_root_treesearch_gtk2_c_1 = t->child;
+
     fill_sig_store();
+    gtkwavetcl_setvar(WAVE_TCLCB_TREE_SELECT,
+                      GLOBALS->selected_hierarchy_name,
+                      WAVE_TCLCB_TREE_SELECT_FLAGS);
 }
 
 static void XXX_unselect_row_callback(GtkTreeModel *model, GtkTreePath *path)
@@ -579,6 +646,9 @@ static void XXX_unselect_row_callback(GtkTreeModel *model, GtkTreePath *path)
     }
 
     if (GLOBALS->selected_hierarchy_name) {
+        gtkwavetcl_setvar(WAVE_TCLCB_TREE_UNSELECT,
+                          GLOBALS->selected_hierarchy_name,
+                          WAVE_TCLCB_TREE_UNSELECT_FLAGS);
         free_2(GLOBALS->selected_hierarchy_name);
         GLOBALS->selected_hierarchy_name = NULL;
     }
@@ -588,11 +658,21 @@ static void XXX_unselect_row_callback(GtkTreeModel *model, GtkTreePath *path)
         /* unused */
     }
 
-    GwTreeNode *tree_root = gw_tree_get_root(gw_dump_file_get_tree(GLOBALS->dump_file));
+    GwTreeNode *tree_root = NULL;
+    if (GLOBALS->dump_file) {
+        tree_root = gw_tree_get_root(gw_dump_file_get_tree(GLOBALS->dump_file));
+    }
+    
+    /* For interactive VCD mode without dump file, use fallback */
+    if (!tree_root) {
+
+        return;
+    }
 
     DEBUG(printf("TU: %08x %s\n", t, t->name));
     GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = NULL;
     GLOBALS->sig_root_treesearch_gtk2_c_1 = tree_root;
+
     fill_sig_store();
 }
 
@@ -663,6 +743,7 @@ static gboolean filter_edit_cb(GtkWidget *widget, GdkEventKey *ev, gpointer *dat
                                    GLOBALS->filter_matlen_treesearch_gtk2_c_1,
                                WAVE_REGEX_TREE);
         }
+
         fill_sig_store();
     }
     return FALSE;
@@ -698,6 +779,7 @@ static void XXX_generic_tree_expand_collapse_callback(int is_expand,
     char *tstring;
     char hier_suffix[2];
     GtkTreePath *path2;
+    int found;
 
     if (!gtk_tree_model_get_iter(model, iter, path)) {
         return; /* path describes a non-existing row - should not happen */
@@ -732,14 +814,28 @@ static void XXX_generic_tree_expand_collapse_callback(int is_expand,
         strcat(tstring, hier_suffix);
     }
 
-    if (GLOBALS->open_tree_nodes) {
+    if (GLOBALS->open_tree_nodes) /* cut down on chatter to Tcl clients */
+    {
         GLOBALS->open_tree_nodes = xl_splay(tstring, GLOBALS->open_tree_nodes);
+        if (!strcmp(GLOBALS->open_tree_nodes->item, tstring)) {
+            found = 1;
+        } else {
+            found = 0;
+        }
+    } else {
+        found = 0;
     }
 
     if (is_expand) {
         GLOBALS->open_tree_nodes = xl_insert(tstring, GLOBALS->open_tree_nodes, NULL);
+        if (!found) {
+            gtkwavetcl_setvar(WAVE_TCLCB_TREE_EXPAND, tstring, WAVE_TCLCB_TREE_EXPAND_FLAGS);
+        }
     } else {
         GLOBALS->open_tree_nodes = xl_delete(tstring, GLOBALS->open_tree_nodes);
+        if (found) {
+            gtkwavetcl_setvar(WAVE_TCLCB_TREE_COLLAPSE, tstring, WAVE_TCLCB_TREE_COLLAPSE_FLAGS);
+        }
     }
 }
 
@@ -876,7 +972,7 @@ static void sig_selection_foreach(GtkTreeModel *model,
                     add_vector_chain(s->vec_root, len);
             }
         } else {
-            AddNode(s->n, NULL);
+            AddNodeUnroll(s->n, NULL);
         }
     }
 }
@@ -1112,6 +1208,11 @@ static gboolean view_selection_func(GtkTreeSelection *selection,
 
         if (!path_currently_selected) {
             GLOBALS->selected_sig_name = strdup_2(name);
+            gtkwavetcl_setvar(WAVE_TCLCB_TREE_SIG_SELECT, name, WAVE_TCLCB_TREE_SIG_SELECT_FLAGS);
+        } else {
+            gtkwavetcl_setvar(WAVE_TCLCB_TREE_SIG_UNSELECT,
+                              name,
+                              WAVE_TCLCB_TREE_SIG_UNSELECT_FLAGS);
         }
 
         g_free(name);
@@ -1132,6 +1233,9 @@ static gint button_press_event_std(GtkWidget *widget, GdkEventButton *event)
             strcpy(sstr, GLOBALS->selected_hierarchy_name);
             strcat(sstr, GLOBALS->selected_sig_name);
 
+            gtkwavetcl_setvar(WAVE_TCLCB_TREE_SIG_DOUBLE_CLICK,
+                              sstr,
+                              WAVE_TCLCB_TREE_SIG_DOUBLE_CLICK_FLAGS);
             action_callback(GLOBALS->sst_dbl_action_type);
         }
     }
@@ -1194,7 +1298,18 @@ GtkWidget *treeboxframe(const char *title)
 
     gtk_paned_pack1(GTK_PANED(vpan), GLOBALS->gtk2_tree_frame, TRUE, FALSE);
 
-    GwTreeNode *tree_root = gw_tree_get_root(gw_dump_file_get_tree(GLOBALS->dump_file));
+    decorated_module_cleanup();
+
+    GwTreeNode *tree_root = NULL;
+    if (GLOBALS->dump_file) {
+        tree_root = gw_tree_get_root(gw_dump_file_get_tree(GLOBALS->dump_file));
+    }
+    
+    /* For interactive VCD mode without dump file, use fallback */
+    if (!tree_root) {
+
+        return sig_frame;
+    }
 
     XXX_maketree(NULL, tree_root);
     gtk_tree_selection_set_select_function(
@@ -1236,6 +1351,7 @@ GtkWidget *treeboxframe(const char *title)
                                                                 G_TYPE_STRING);
     GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = NULL;
     GLOBALS->sig_root_treesearch_gtk2_c_1 = tree_root;
+
     fill_sig_store();
 
     sig_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(GLOBALS->sig_store_treesearch_gtk2_c_1));
@@ -1247,13 +1363,6 @@ GtkWidget *treeboxframe(const char *title)
         GtkCellRenderer *renderer;
         GtkTreeViewColumn *column;
 
-        gboolean has_nonimplicit_directions =
-            gw_dump_file_has_nonimplicit_directions(GLOBALS->dump_file);
-        gboolean has_supplemental_datatypes =
-            gw_dump_file_has_supplemental_datatypes(GLOBALS->dump_file);
-        gboolean has_supplemental_vartypes =
-            gw_dump_file_has_supplemental_vartypes(GLOBALS->dump_file);
-
         renderer = gtk_cell_renderer_text_new();
 
         switch (GLOBALS->loaded_file_type) {
@@ -1262,7 +1371,7 @@ GtkWidget *treeboxframe(const char *title)
 #endif
             case FST_FILE:
                 /* fallthrough for Dir is deliberate for extload and FST */
-                if (has_nonimplicit_directions) {
+                if (GLOBALS->nonimplicit_direction_encountered) {
                     column = gtk_tree_view_column_new_with_attributes("Dir",
                                                                       renderer,
                                                                       "text",
@@ -1274,13 +1383,17 @@ GtkWidget *treeboxframe(const char *title)
             case VCD_RECODER_FILE:
             case DUMPLESS_FILE:
                 column = gtk_tree_view_column_new_with_attributes(
-                    (has_supplemental_datatypes && has_supplemental_vartypes) ? "VType" : "Type",
+                    ((GLOBALS->supplemental_datatypes_encountered) &&
+                     (GLOBALS->supplemental_vartypes_encountered))
+                        ? "VType"
+                        : "Type",
                     renderer,
                     "text",
                     TYPE_COLUMN,
                     NULL);
                 gtk_tree_view_append_column(GTK_TREE_VIEW(sig_view), column);
-                if (has_supplemental_datatypes && has_supplemental_vartypes) {
+                if ((GLOBALS->supplemental_datatypes_encountered) &&
+                    (GLOBALS->supplemental_vartypes_encountered)) {
                     column = gtk_tree_view_column_new_with_attributes("DType",
                                                                       renderer,
                                                                       "text",
@@ -1553,62 +1666,73 @@ void dnd_setup(GtkWidget *src, gboolean search)
 
 /***************************************************************************/
 
-static void select_vec_roots(GwFacs *facs, gint low, gint high)
+static void recurse_append_callback(GtkWidget *widget, gpointer data)
 {
-    for (gint i = low; i <= high; i++) {
-        if (i < 0) {
-            break; /* GHW */
-        }
+    int i;
 
+    if (!GLOBALS->sst_sig_root_treesearch_gtk2_c_1 || !data)
+        return;
+
+    set_window_busy(widget);
+
+    GwFacs *facs = NULL;
+    if (GLOBALS->dump_file) {
+        facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+    }
+    
+    /* For interactive VCD mode without dump file, use fallback */
+    if (!facs) {
+
+        set_window_idle(widget);
+        return;
+    }
+
+    for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+        if (i < 0)
+            break; /* GHW */
         GwSymbol *s = gw_facs_get(facs, i);
-        if (s->vec_root != NULL) {
+        if (s->vec_root) {
             set_s_selected(s->vec_root, GLOBALS->autocoalesce);
         }
     }
-}
 
-static void import_lx2(GwFacs *facs, gint low, gint high)
-{
-    int pre_import = 0;
+    /* LX2 */
+    if (GLOBALS->is_lx2) {
+        int pre_import = 0;
 
-    for (int i = low; i <= high; i++) {
-        if (i < 0) {
-            break; /* GHW */
-        }
-
-        GwSymbol *s = gw_facs_get(facs, i);
-        GwSymbol *t = s->vec_root;
-        if ((t) && (GLOBALS->autocoalesce)) {
-            if (get_s_selected(t)) {
-                while (t) {
-                    if (t->n->mv.mvlfac) {
-                        lx2_set_fac_process_mask(t->n);
-                        pre_import++;
+        for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+            if (i < 0)
+                break; /* GHW */
+            GwSymbol *s = gw_facs_get(facs, i);
+            GwSymbol *t = s->vec_root;
+            if ((t) && (GLOBALS->autocoalesce)) {
+                if (get_s_selected(t)) {
+                    while (t) {
+                        if (t->n->mv.mvlfac) {
+                            lx2_set_fac_process_mask(t->n);
+                            pre_import++;
+                        }
+                        t = t->vec_chain;
                     }
-                    t = t->vec_chain;
+                }
+            } else {
+                if (s->n->mv.mvlfac) {
+                    lx2_set_fac_process_mask(s->n);
+                    pre_import++;
                 }
             }
-        } else {
-            if (s->n->mv.mvlfac) {
-                lx2_set_fac_process_mask(s->n);
-                pre_import++;
-            }
+        }
+
+        if (pre_import) {
+            lx2_import_masked();
         }
     }
+    /* LX2 */
 
-    if (pre_import) {
-        lx2_import_masked();
-    }
-}
-
-static void add_nodes(GwFacs *facs, gint low, gint high)
-{
-    for (gint i = low; i <= high; i++) {
+    for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
         int len;
-        if (i < 0) {
+        if (i < 0)
             break; /* GHW */
-        }
-
         GwSymbol *s = gw_facs_get(facs, i);
         GwSymbol *t = s->vec_root;
         if ((t) && (GLOBALS->autocoalesce)) {
@@ -1623,41 +1747,107 @@ static void add_nodes(GwFacs *facs, gint low, gint high)
                     add_vector_chain(s->vec_root, len);
             }
         } else {
-            AddNode(s->n, NULL);
+            AddNodeUnroll(s->n, NULL);
         }
     }
-}
 
-static void recurse_append_callback(GwFacs *facs, gint low, gint high)
-{
-    select_vec_roots(facs, low, high);
-
-    if (GLOBALS->is_lx2) {
-        import_lx2(facs, low, high);
-    }
-
-    add_nodes(facs, low, high);
+    set_window_idle(widget);
 
     gw_signal_list_scroll_to_trace(GW_SIGNAL_LIST(GLOBALS->signalarea), GLOBALS->traces.last);
     redraw_signals_and_waves();
 }
 
-static void recurse_insert_callback(GwFacs *facs, gint low, gint high)
+static void recurse_insert_callback(GtkWidget *widget, gpointer data)
 {
     Traces tcache;
+    int i;
+
+    if (!GLOBALS->sst_sig_root_treesearch_gtk2_c_1 || !data)
+        return;
+
     memcpy(&tcache, &GLOBALS->traces, sizeof(Traces));
     GLOBALS->traces.total = 0;
     GLOBALS->traces.first = GLOBALS->traces.last = NULL;
 
-    select_vec_roots(facs, low, high);
+    set_window_busy(widget);
+
+    GwFacs *facs = NULL;
+    if (GLOBALS->dump_file) {
+        facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+    }
+    
+    /* For interactive VCD mode without dump file, use fallback */
+    if (!facs) {
+
+        set_window_idle(widget);
+        return;
+    }
+
+    for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+        if (i < 0)
+            break; /* GHW */
+        GwSymbol *s = gw_facs_get(facs, i);
+        if (s->vec_root) {
+            set_s_selected(s->vec_root, GLOBALS->autocoalesce);
+        }
+    }
 
     /* LX2 */
     if (GLOBALS->is_lx2) {
-        import_lx2(facs, low, high);
+        int pre_import = 0;
+
+        for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+            if (i < 0)
+                break; /* GHW */
+            GwSymbol *s = gw_facs_get(facs, i);
+            GwSymbol *t = s->vec_root;
+            if ((t) && (GLOBALS->autocoalesce)) {
+                if (get_s_selected(t)) {
+                    while (t) {
+                        if (t->n->mv.mvlfac) {
+                            lx2_set_fac_process_mask(t->n);
+                            pre_import++;
+                        }
+                        t = t->vec_chain;
+                    }
+                }
+            } else {
+                if (s->n->mv.mvlfac) {
+                    lx2_set_fac_process_mask(s->n);
+                    pre_import++;
+                }
+            }
+        }
+
+        if (pre_import) {
+            lx2_import_masked();
+        }
     }
     /* LX2 */
 
-    add_nodes(facs, low, high);
+    for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+        int len;
+        if (i < 0)
+            break; /* GHW */
+        GwSymbol *s = gw_facs_get(facs, i);
+        GwSymbol *t = s->vec_root;
+        if ((t) && (GLOBALS->autocoalesce)) {
+            if (get_s_selected(t)) {
+                set_s_selected(t, 0);
+                len = 0;
+                while (t) {
+                    len++;
+                    t = t->vec_chain;
+                }
+                if (len)
+                    add_vector_chain(s->vec_root, len);
+            }
+        } else {
+            AddNodeUnroll(s->n, NULL);
+        }
+    }
+
+    set_window_idle(widget);
 
     GLOBALS->traces.buffercount = GLOBALS->traces.total;
     GLOBALS->traces.buffer = GLOBALS->traces.first;
@@ -1675,24 +1865,99 @@ static void recurse_insert_callback(GwFacs *facs, gint low, gint high)
     redraw_signals_and_waves();
 }
 
-static void recurse_replace_callback(GwFacs *facs, gint low, gint high)
+static void recurse_replace_callback(GtkWidget *widget, gpointer data)
 {
     Traces tcache;
     int i;
     GwTrace *tfirst = NULL;
     GwTrace *tlast = NULL;
 
+    if (!GLOBALS->sst_sig_root_treesearch_gtk2_c_1 || !data)
+        return;
+
     memcpy(&tcache, &GLOBALS->traces, sizeof(Traces));
     GLOBALS->traces.total = 0;
     GLOBALS->traces.first = GLOBALS->traces.last = NULL;
 
-    select_vec_roots(facs, low, high);
+    set_window_busy(widget);
 
-    if (GLOBALS->is_lx2) {
-        import_lx2(facs, low, high);
+    GwFacs *facs = NULL;
+    if (GLOBALS->dump_file) {
+        facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+    }
+    
+    /* For interactive VCD mode without dump file, use fallback */
+    if (!facs) {
+
+        set_window_idle(widget);
+        return;
     }
 
-    add_nodes(facs, low, high);
+    for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+        if (i < 0)
+            break; /* GHW */
+        GwSymbol *s = gw_facs_get(facs, i);
+        if (s->vec_root) {
+            set_s_selected(s->vec_root, GLOBALS->autocoalesce);
+        }
+    }
+
+    /* LX2 */
+    if (GLOBALS->is_lx2) {
+        int pre_import = 0;
+
+        for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+            if (i < 0)
+                break; /* GHW */
+            GwSymbol *s = gw_facs_get(facs, i);
+            GwSymbol *t = s->vec_root;
+            if ((t) && (GLOBALS->autocoalesce)) {
+                if (get_s_selected(t)) {
+                    while (t) {
+                        if (t->n->mv.mvlfac) {
+                            lx2_set_fac_process_mask(t->n);
+                            pre_import++;
+                        }
+                        t = t->vec_chain;
+                    }
+                }
+            } else {
+                if (s->n->mv.mvlfac) {
+                    lx2_set_fac_process_mask(s->n);
+                    pre_import++;
+                }
+            }
+        }
+
+        if (pre_import) {
+            lx2_import_masked();
+        }
+    }
+    /* LX2 */
+
+    for (i = GLOBALS->fetchlow; i <= GLOBALS->fetchhigh; i++) {
+        int len;
+        if (i < 0)
+            break; /* GHW */
+        GwSymbol *s = gw_facs_get(facs, i);
+        GwSymbol *t = s->vec_root;
+        if ((t) && (GLOBALS->autocoalesce)) {
+            if (get_s_selected(t)) {
+                set_s_selected(t, 0);
+                len = 0;
+                while (t) {
+                    len++;
+                    t = t->vec_chain;
+                }
+                if (len)
+                    add_vector_chain(s->vec_root, len);
+            }
+        } else {
+            AddNodeUnroll(s->n, NULL);
+        }
+    }
+
+    set_window_idle(widget);
 
     tfirst = GLOBALS->traces.first;
     tlast = GLOBALS->traces.last; /* cache for highlighting */
@@ -1763,82 +2028,46 @@ static void recurse_replace_callback(GwFacs *facs, gint low, gint high)
     redraw_signals_and_waves();
 }
 
-static void recurse_fetch_high_low(GwTreeNode *t, gint *low, gint *high)
-{
-top:
-    if (t->t_which >= 0) {
-        if (t->t_which > *high) {
-            *high = t->t_which;
-        }
-        if (*low < 0) {
-            *low = t->t_which;
-        } else if (t->t_which < *low) {
-            *low = t->t_which;
-        }
-    }
-
-    if (t->child) {
-        recurse_fetch_high_low(t->child, low, high);
-    }
-
-    if (t->next) {
-        t = t->next;
-        goto top;
-    }
-}
-
 void recurse_import(GtkWidget *widget, guint callback_action)
 {
-    if (GLOBALS->sst_sig_root_treesearch_gtk2_c_1 == NULL) {
-        return;
-    }
+    if (GLOBALS->sst_sig_root_treesearch_gtk2_c_1) {
+        int fz;
 
-    gint low = -1;
-    gint high = -1;
-    if (GLOBALS->sst_sig_root_treesearch_gtk2_c_1->child) {
-        recurse_fetch_high_low(GLOBALS->sst_sig_root_treesearch_gtk2_c_1->child, &low, &high);
-    }
+        GLOBALS->fetchlow = GLOBALS->fetchhigh = -1;
+        if (GLOBALS->sst_sig_root_treesearch_gtk2_c_1->child)
+            // TODO: Implement recurse_fetch_high_low
+            // recurse_fetch_high_low(GLOBALS->sst_sig_root_treesearch_gtk2_c_1->child);
+        fz = GLOBALS->fetchhigh - GLOBALS->fetchlow + 1;
+        void (*func)(GtkWidget *, gpointer);
 
-    if (low < 0 || high < 0) {
-        return;
-    }
-    int fz = high - low + 1;
+        switch (callback_action) {
+            case WV_RECURSE_INSERT:
+                func = recurse_insert_callback;
+                break;
+            case WV_RECURSE_REPLACE:
+                func = recurse_replace_callback;
+                break;
 
-    if (fz > WV_RECURSE_IMPORT_WARN) {
-        char recwarn[128];
-        sprintf(recwarn, "Really import %d facilit%s?", fz, (fz == 1) ? "y" : "ies");
+            case WV_RECURSE_APPEND:
+            default:
+                func = recurse_append_callback;
+                break;
+        }
 
-        GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(GLOBALS->mainwindow),
-                                                   GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                   GTK_MESSAGE_WARNING,
-                                                   GTK_BUTTONS_YES_NO,
-                                                   "Really import %d facilit%s?",
-                                                   fz,
-                                                   (fz == 1) ? "y" : "ies");
+        if ((GLOBALS->fetchlow >= 0) && (GLOBALS->fetchhigh >= 0)) {
+            widget = GLOBALS->mainwindow; /* otherwise using widget passed from the menu item
+                                             crashes on OSX */
 
-        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
-        gtk_widget_destroy(dialog);
+            if (fz > WV_RECURSE_IMPORT_WARN) {
+                char recwarn[128];
+                sprintf(recwarn, "Really import %d facilit%s?", fz, (fz == 1) ? "y" : "ies");
 
-        if (response != GTK_RESPONSE_YES) {
-            return;
+                simplereqbox("Recurse Warning", 300, recwarn, "Yes", "No", G_CALLBACK(func), 1);
+            } else {
+                func(widget, (gpointer)1);
+            }
         }
     }
-
-    widget = GLOBALS->mainwindow; /* otherwise using widget passed from the menu item
-                                     crashes on OSX */
-    set_window_busy(widget);
-
-    GwFacs *facs = gw_dump_file_get_facs(GLOBALS->dump_file);
-
-    if (callback_action == WV_RECURSE_INSERT) {
-        recurse_insert_callback(facs, low, high);
-    } else if (callback_action == WV_RECURSE_REPLACE) {
-        recurse_replace_callback(facs, low, high);
-    } else { // WV_RECURSE_APPEND
-        recurse_append_callback(facs, low, high);
-    }
-
-    set_window_idle(widget);
 }
 
 /***************************************************************************/

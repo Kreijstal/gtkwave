@@ -58,6 +58,7 @@
 #include "lx2.h"
 #include "pixmaps.h"
 #include "currenttime.h"
+#include "vcd_partial_adapter.h"
 #include "fgetdynamic.h"
 #include "rc.h"
 #include "translate.h"
@@ -68,6 +69,8 @@
 #include "gw-time-display.h"
 #include "gw-vcd-file.h"
 #include "gw-fst-file.h"
+
+
 
 #include "tcl_helper.h"
 
@@ -246,6 +249,8 @@ static void print_help(char *nam)
 
 #define STEMS_GETOPT "  -t, --stems=FILE           specify stems file for source code annotation\n"
 #define DUAL_GETOPT "  -D, --dualid=WHICH         specify multisession identifier\n"
+#define INTR_GETOPT \
+    "  -I, --interactive          interactive VCD mode (filename is shared mem ID)\n"
 
 #ifdef WAVE_USE_XID
 #define XID_GETOPT "  -X, --xid=XID              specify XID of window for GtkPlug to connect to\n"
@@ -291,7 +296,7 @@ static void print_help(char *nam)
         "  -4, --rcvar                specify single rc variable values individually\n"
         "  -5, --sstexclude           specify sst exclusion filter filename\n"
         "  -6, --dark                 set gtk-application-prefer-dark-theme = TRUE\n"
-        "  -7, --saveonexit           prompt user to write save file at exit\n"
+        "  -7, --saveonexit           prompt user to write save file at exit\n" INTR_GETOPT
         "  -g, --giga                 use gigabyte mempacking when recoding (slower)\n"
         "  -v, --vcd                  use stdin as a VCD dumpfile\n" OUTPUT_GETOPT
         "  -V, --version              display version banner then exit\n"
@@ -676,7 +681,9 @@ int main_2(int opt_vcd, int argc, char *argv[])
     char fast_exit = 0;
     char opt_errors_encountered = 0;
     char is_missing_file = 0;
+    char is_interactive = 0;
 
+    char *shared_memory_id = NULL;
     char *wname = NULL;
     char *override_rc = NULL;
     FILE *wave = NULL;
@@ -901,6 +908,7 @@ do_primary_inits:
                                                    {"xid", 1, 0, 'X'},
                                                    {"nomenus", 0, 0, 'M'},
                                                    {"dualid", 1, 0, 'D'},
+                                                   {"interactive", 0, 0, 'I'},
                                                    {"giga", 0, 0, 'g'},
                                                    {"wish", 0, 0, 'W'},
                                                    {"output", 1, 0, 'O'},
@@ -931,6 +939,10 @@ do_primary_inits:
                                              "warranty; not even for MERCHANTABILITY or FITNESS "
                                              "FOR A PARTICULAR PURPOSE.\n");
                     exit(0);
+
+                case 'I':
+                    is_interactive = 1;
+                    break;
 
                 case 'D': {
                     char *s = optarg;
@@ -1432,12 +1444,53 @@ loader_check_head:
 
 #endif
 
-        if (strcmp(GLOBALS->loaded_file_name, "-vcd")) {
-            GLOBALS->loaded_file_type = VCD_RECODER_FILE;
-        } else {
+        if (is_interactive) {
             GLOBALS->loaded_file_type = DUMPLESS_FILE;
+            /* For interactive mode with -v, read shared memory ID from stdin */
+            if (is_vcd) {
+                char buf[128];
+                if (fgets(buf, sizeof(buf), stdin)) {
+                    buf[strcspn(buf, "\r\n")] = 0; /* Remove newline */
+                    if (shared_memory_id) free_2(shared_memory_id);
+                    shared_memory_id = strdup_2(buf);
+                    fprintf(stderr, "MAIN: Before vcd_partial_main, GLOBALS->dump_file = %p\n", GLOBALS->dump_file);
+                    vcd_partial_main(shared_memory_id);
+                    fprintf(stderr, "MAIN: After vcd_partial_main, GLOBALS->dump_file = %p\n", GLOBALS->dump_file);
+                    if (GLOBALS->dump_file) {
+                        fprintf(stderr, "MAIN: GLOBALS->dump_file type: %s\n", G_OBJECT_TYPE_NAME(GLOBALS->dump_file));
+                        fprintf(stderr, "MAIN: GW_IS_DUMP_FILE(GLOBALS->dump_file): %s\n", GW_IS_DUMP_FILE(GLOBALS->dump_file) ? "YES" : "NO");
+                        fprintf(stderr, "MAIN: gw_dump_file_get_tree: %p\n", gw_dump_file_get_tree(GLOBALS->dump_file));
+                        fprintf(stderr, "MAIN: gw_dump_file_get_facs: %p\n", gw_dump_file_get_facs(GLOBALS->dump_file));
+                    } else {
+                        fprintf(stderr, "MAIN: No dump file created by vcd_partial_main, creating minimal one\n");
+                        /* Fallback: Create a minimal dump file structure for interactive mode */
+                        GLOBALS->dump_file = g_object_new(GW_TYPE_VCD_FILE, NULL);
+                        fprintf(stderr, "MAIN: Created minimal dump file for interactive VCD: %p\n", GLOBALS->dump_file);
+                    }
+                } else {
+                    fprintf(stderr, "Error: No shared memory ID provided on stdin for interactive mode\n");
+                    exit(1);
+                }
+            } else {
+
+                vcd_partial_main(GLOBALS->loaded_file_name);
+
+                if (GLOBALS->dump_file) {
+
+                }
+                if (!GLOBALS->dump_file) {
+                    fprintf(stderr, "Error: Failed to load partial VCD from filename '%s'\n", GLOBALS->loaded_file_name);
+                    exit(1);
+                }
+            }
+        } else {
+            if (strcmp(GLOBALS->loaded_file_name, "-vcd")) {
+                GLOBALS->loaded_file_type = VCD_RECODER_FILE;
+            } else {
+                GLOBALS->loaded_file_type = DUMPLESS_FILE;
+            }
+            GLOBALS->dump_file = vcd_recoder_main(GLOBALS->loaded_file_name);
         }
-        GLOBALS->dump_file = vcd_recoder_main(GLOBALS->loaded_file_name);
     }
 
     // /* reset/initialize various markers and time values */
@@ -1445,19 +1498,39 @@ loader_check_head:
     //     GLOBALS->named_markers[i] = -1; /* reset all named markers */
 
     if (GLOBALS->dump_file != NULL) {
-        GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
-        GLOBALS->tims.first = gw_time_range_get_start(time_range);
-        GLOBALS->tims.last = gw_time_range_get_end(time_range);
+
+
+        
+        /* For interactive VCD mode, set up minimal time range only if we don't have a valid dump file */
+        if (GLOBALS->loaded_file_type == DUMPLESS_FILE && !GW_IS_DUMP_FILE(GLOBALS->dump_file)) {
+            GLOBALS->tims.first = 0;
+            GLOBALS->tims.last = 0; /* Default time range for interactive VCD */
+            GLOBALS->tims.start = 0;
+            GLOBALS->tims.laststart = 0;
+            GLOBALS->tims.end = 0;
+
+        } else if (GW_IS_DUMP_FILE(GLOBALS->dump_file)) {
+            GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
+            GLOBALS->tims.first = gw_time_range_get_start(time_range);
+            GLOBALS->tims.last = gw_time_range_get_end(time_range);
 
         GLOBALS->tims.start = GLOBALS->tims.first;
         GLOBALS->tims.laststart = GLOBALS->tims.first;
         GLOBALS->tims.end = GLOBALS->tims.last; /* until the configure_event of wavearea */
         GLOBALS->tims.zoom = GLOBALS->tims.prevzoom = 0; /* 1 pixel/ns default */
+        } else {
+
+            GLOBALS->tims.first = 0;
+            GLOBALS->tims.last = 0;
+            GLOBALS->tims.start = 0;
+            GLOBALS->tims.laststart = 0;
+            GLOBALS->tims.end = 0;
+        }
         gw_marker_set_enabled(gw_project_get_primary_marker(GLOBALS->project), FALSE);
         gw_marker_set_enabled(gw_project_get_baseline_marker(GLOBALS->project), FALSE);
         gw_marker_set_enabled(gw_project_get_ghost_marker(GLOBALS->project), FALSE);
 
-        if (gw_time_range_get_end(time_range) >> DBL_MANT_DIG) {
+        if (GLOBALS->tims.end >> DBL_MANT_DIG) {
             fprintf(stderr,
                     "GTKWAVE | Warning: max_time bits > DBL_MANT_DIG (%d), GUI may malfunction!\n",
                     DBL_MANT_DIG);
@@ -1775,7 +1848,15 @@ savefile_bail:
 
     if (GLOBALS->loaded_file_type != MISSING_FILE) {
         GLOBALS->toppanedwindow = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+        fprintf(stderr, "MAIN: Before treeboxframe, dump_file = %p, GW_IS_DUMP_FILE: %s\n", 
+                GLOBALS->dump_file, GW_IS_DUMP_FILE(GLOBALS->dump_file) ? "YES" : "NO");
+        if (GLOBALS->dump_file) {
+            fprintf(stderr, "MAIN: dump_file type: %s\n", G_OBJECT_TYPE_NAME(GLOBALS->dump_file));
+            fprintf(stderr, "MAIN: dump_file tree: %p\n", gw_dump_file_get_tree(GLOBALS->dump_file));
+            fprintf(stderr, "MAIN: dump_file facs: %p\n", gw_dump_file_get_facs(GLOBALS->dump_file));
+        }
         GLOBALS->sstpane = treeboxframe("SST");
+
 
         GLOBALS->expanderwindow = gtk_expander_new_with_mnemonic("_SST");
         gtk_expander_set_expanded(GTK_EXPANDER(GLOBALS->expanderwindow),
@@ -2138,8 +2219,12 @@ savefile_bail:
                     time_update();
                 }
 
-                while (gtk_events_pending())
-                    gtk_main_iteration();
+                if (is_interactive) {
+                    kick_partial_vcd();
+                } else {
+                    while (gtk_events_pending())
+                        gtk_main_iteration();
+                }
 
                 GLOBALS->dual_race_lock = 0;
 
@@ -2157,11 +2242,22 @@ savefile_bail:
                     GLOBALS->dual_attach_id_main_c_1);
             exit(255);
         }
+    }
+
+
+    if (is_interactive) {
+        /* Use GTK timeout for periodic kicking instead of infinite loop */
+        g_timeout_add(100, (GSourceFunc)kick_partial_vcd, NULL);
+        /* Also add a timeout to refresh SST when symbols become available */
+        /* g_timeout_add(500, (GSourceFunc)refresh_sst_if_needed, NULL); */
+        gtk_main();
     } else {
         gtk_main();
     }
 
-#ifdef MAC_INTEGRATION
+
+
+#if defined MAC_INTEGRATION
     exit(0); /* gtk_target_list_find crashes in OSX/Quartz is return instead of exit */
 #else
     return (0);

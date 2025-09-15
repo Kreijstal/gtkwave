@@ -10,6 +10,7 @@
 #include <config.h>
 #include "globals.h"
 #include "vcd_saver.h"
+#include "hierpack.h"
 #include <time.h>
 
 static void w32redirect_fprintf(int is_trans, FILE *sfd, const char *format, ...)
@@ -531,7 +532,9 @@ int save_nodes_to_export_generic(FILE *trans_file,
     recurse_build(vt, &hp_clone);
 
     for (i = 0; i < nodecnt; i++) {
-        char *hname = GLOBALS->hp_vcd_saver_c_1[i]->item->nname;
+        int was_packed = HIER_DEPACK_STATIC;
+        char *hname =
+            hier_decompress_flagged(GLOBALS->hp_vcd_saver_c_1[i]->item->nname, &was_packed);
         char *netname = output_hier(is_trans, hname);
 
         if (export_typ == WAVE_EXPORT_TRANS) {

@@ -30,6 +30,7 @@
 #include "main.h"
 #include "menu.h"
 #include "color.h"
+#include "gw-vlist.h"
 #include "rc.h"
 
 #ifdef MAC_INTEGRATION
@@ -55,6 +56,16 @@ int f_accel(const char *str)
         set_wave_menu_accelerator(str);
     }
 
+    return (0);
+}
+
+int f_alt_hier_delimeter(const char *str)
+{
+    DEBUG(printf("f_alt_hier_delimeter(\"%s\")\n", str));
+
+    if (strlen(str)) {
+        GLOBALS->alt_hier_delimeter = str[0];
+    }
     return (0);
 }
 
@@ -131,6 +142,13 @@ int f_disable_antialiasing(const char *str)
 {
     DEBUG(printf("f_disable_antialiasing(\"%s\")\n", str));
     GLOBALS->disable_antialiasing = atoi_64(str) ? TRUE : FALSE;
+    return (0);
+}
+
+int f_disable_auto_comphier(const char *str)
+{
+    DEBUG(printf("f_disable_auto_comphier(\"%s\")\n", str));
+    GLOBALS->disable_auto_comphier = atoi_64(str) ? 1 : 0;
     return (0);
 }
 
@@ -611,7 +629,7 @@ int f_vcd_preserve_glitches_real(const char *str)
 int f_vcd_warning_filesize(const char *str)
 {
     DEBUG(printf("f_vcd_warning_filesize(\"%s\")\n", str));
-    GLOBALS->settings.vcd_warning_filesize = atoi_64(str);
+    GLOBALS->vcd_warning_filesize = atoi_64(str);
     return (0);
 }
 
@@ -629,9 +647,11 @@ int f_vector_padding(const char *str)
 int f_vlist_compression(const char *str)
 {
     DEBUG(printf("f_vlist_compression(\"%s\")\n", str));
-    GLOBALS->settings.vlist_compression_level = atoi_64(str);
-    GLOBALS->settings.vlist_compression_level =
-        CLAMP(GLOBALS->settings.vlist_compression_level, -1, 9);
+    GLOBALS->vlist_compression_depth = atoi_64(str);
+    if (GLOBALS->vlist_compression_depth < 0)
+        GLOBALS->vlist_compression_depth = -1;
+    if (GLOBALS->vlist_compression_depth > 9)
+        GLOBALS->vlist_compression_depth = 9;
     return (0);
 }
 
@@ -759,6 +779,7 @@ color_make(gmstrd, "signal-list-gmstrd")
  * rc variables...these MUST be in alphabetical order for the bsearch!
  */
 static struct rc_entry rcitems[] = {{"accel", f_accel},
+                                    {"alt_hier_delimeter", f_alt_hier_delimeter},
                                     {"analog_redraw_skip_count", f_analog_redraw_skip_count},
                                     {"autocoalesce", f_autocoalesce},
                                     {"autocoalesce_reversal", f_autocoalesce_reversal},
@@ -806,6 +827,7 @@ static struct rc_entry rcitems[] = {{"accel", f_accel},
                                     {"cursor_snap", f_cursor_snap},
                                     {"dbl_mant_dig_override", f_dbl_mant_dig_override},
                                     {"disable_antialiasing", f_disable_antialiasing},
+                                    {"disable_auto_comphier", f_disable_auto_comphier},
                                     {"disable_empty_gui", f_disable_empty_gui},
                                     {"disable_mouseover", f_disable_mouseover},
                                     {"disable_tooltips", f_disable_tooltips},

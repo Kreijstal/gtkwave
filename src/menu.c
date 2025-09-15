@@ -25,6 +25,7 @@
 #include "ptranslate.h"
 #include "ttranslate.h"
 #include "lx2.h"
+#include "hierpack.h"
 #include "tcl_helper.h"
 #include "signal_list.h"
 #include "gw-named-marker-dialog.h"
@@ -296,10 +297,15 @@ static void unlock_marker(gpointer null_data, guint callback_action, GtkWidget *
 
 static void menu_scale_to_td_common(GtkCheckMenuItem *menu_item, char dimension)
 {
-    if (gtk_check_menu_item_get_active(menu_item)) {
-        GLOBALS->scale_to_time_dimension = dimension;
-        set_scale_to_time_dimension_toggles();
-        redraw_signals_and_waves();
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_TDSCALEX]), TRUE);
+    } else {
+        if (gtk_check_menu_item_get_active(menu_item)) {
+            GLOBALS->scale_to_time_dimension = dimension;
+            set_scale_to_time_dimension_toggles();
+            redraw_signals_and_waves();
+        }
     }
 }
 
@@ -644,12 +650,22 @@ void wave_scrolling_on(gpointer null_data, guint callback_action, GtkWidget *wid
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->wave_scrolling =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_MWSON]));
-    if (GLOBALS->wave_scrolling) {
-        status_text("Wave Scrolling On.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_MWSON]),
+            GLOBALS->wave_scrolling =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->wave_scrolling));
     } else {
-        status_text("Wave Scrolling Off.\n");
+        GLOBALS->wave_scrolling =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_MWSON]));
+        if (GLOBALS->wave_scrolling) {
+            status_text("Wave Scrolling On.\n");
+        } else {
+            status_text("Wave Scrolling Off.\n");
+        }
     }
 }
 
@@ -661,8 +677,18 @@ void menu_keep_xz_colors(gpointer null_data, guint callback_action, GtkWidget *w
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->keep_xz_colors =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_KEEPXZ]));
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_KEEPXZ]),
+            GLOBALS->keep_xz_colors =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->keep_xz_colors));
+    } else {
+        GLOBALS->keep_xz_colors =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_KEEPXZ]));
+    }
 
     GLOBALS->signalwindow_width_dirty = 1;
     redraw_signals_and_waves();
@@ -676,12 +702,22 @@ void menu_autocoalesce(gpointer null_data, guint callback_action, GtkWidget *wid
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->autocoalesce =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ACOL]));
-    if (GLOBALS->autocoalesce) {
-        status_text("Autocoalesce On.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ACOL]),
+            GLOBALS->autocoalesce =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->autocoalesce));
     } else {
-        status_text("Autocoalesce Off.\n");
+        GLOBALS->autocoalesce =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ACOL]));
+        if (GLOBALS->autocoalesce) {
+            status_text("Autocoalesce On.\n");
+        } else {
+            status_text("Autocoalesce Off.\n");
+        }
     }
 }
 
@@ -691,12 +727,22 @@ void menu_autocoalesce_reversal(gpointer null_data, guint callback_action, GtkWi
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->autocoalesce_reversal =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ACOLR]));
-    if (GLOBALS->autocoalesce_reversal) {
-        status_text("Autocoalesce Rvs On.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ACOLR]),
+            GLOBALS->autocoalesce_reversal =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->autocoalesce_reversal));
     } else {
-        status_text("Autocoalesce Rvs Off.\n");
+        GLOBALS->autocoalesce_reversal =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ACOLR]));
+        if (GLOBALS->autocoalesce_reversal) {
+            status_text("Autocoalesce Rvs On.\n");
+        } else {
+            status_text("Autocoalesce Rvs Off.\n");
+        }
     }
 }
 
@@ -706,12 +752,22 @@ void menu_autoname_bundles_on(gpointer null_data, guint callback_action, GtkWidg
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->autoname_bundles =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ABON]));
-    if (GLOBALS->autoname_bundles) {
-        status_text("Autoname On.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ABON]),
+            GLOBALS->autoname_bundles =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->autoname_bundles));
     } else {
-        status_text("Autoname Off.\n");
+        GLOBALS->autoname_bundles =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_ABON]));
+        if (GLOBALS->autoname_bundles) {
+            status_text("Autoname On.\n");
+        } else {
+            status_text("Autoname Off.\n");
+        }
     }
 }
 
@@ -746,9 +802,29 @@ void set_hier_cleanup(GtkWidget *widget, gpointer data, int level)
                         t->name = hier_extract(t->name, GLOBALS->hier_max_level);
                 } else {
                     if (!GLOBALS->hier_max_level) {
-                        t->name = t->n.nd->nname;
+                        int flagged = HIER_DEPACK_ALLOC;
+
+                        if (t->name && t->is_depacked) {
+                            free_2(t->name);
+                        }
+                        t->name = hier_decompress_flagged(t->n.nd->nname, &flagged);
+                        t->is_depacked = (flagged != 0);
                     } else {
-                        t->name = hier_extract(t->n.nd->nname, GLOBALS->hier_max_level);
+                        int flagged = HIER_DEPACK_ALLOC;
+                        char *tbuff;
+
+                        if (t->name && t->is_depacked) {
+                            free_2(t->name);
+                        }
+                        tbuff = hier_decompress_flagged(t->n.nd->nname, &flagged);
+                        t->is_depacked = (flagged != 0);
+
+                        if (!flagged) {
+                            t->name = hier_extract(t->n.nd->nname, GLOBALS->hier_max_level);
+                        } else {
+                            t->name = strdup_2(hier_extract(tbuff, GLOBALS->hier_max_level));
+                            free_2(tbuff);
+                        }
                     }
                 }
             }
@@ -808,14 +884,24 @@ void menu_use_roundcaps(gpointer null_data, guint callback_action, GtkWidget *wi
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->use_roundcaps =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VDRV]));
-    if (GLOBALS->use_roundcaps) {
-        status_text("Using roundcaps.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VDRV]),
+            GLOBALS->use_roundcaps =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->use_roundcaps));
     } else {
-        status_text("Using flatcaps.\n");
+        GLOBALS->use_roundcaps =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VDRV]));
+        if (GLOBALS->use_roundcaps) {
+            status_text("Using roundcaps.\n");
+        } else {
+            status_text("Using flatcaps.\n");
+        }
+        redraw_signals_and_waves();
     }
-    redraw_signals_and_waves();
 }
 
 /**/
@@ -825,25 +911,35 @@ void menu_use_full_precision(gpointer null_data, guint callback_action, GtkWidge
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->use_full_precision =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VFTP]));
-    if (!GLOBALS->use_full_precision) {
-        status_text("Full Prec Off.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VFTP]),
+            GLOBALS->use_full_precision =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->use_full_precision));
     } else {
-        status_text("Full Prec On.\n");
-    }
+        GLOBALS->use_full_precision =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VFTP]));
+        if (!GLOBALS->use_full_precision) {
+            status_text("Full Prec Off.\n");
+        } else {
+            status_text("Full Prec On.\n");
+        }
 
-    calczoom(GLOBALS->tims.zoom);
+        calczoom(GLOBALS->tims.zoom);
 
-    if (GLOBALS->wave_hslider) {
-        fix_wavehadj();
+        if (GLOBALS->wave_hslider) {
+            fix_wavehadj();
 
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
-                              "changed"); /* force zoom update */
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
-                              "value_changed"); /* force zoom update */
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
+                                  "changed"); /* force zoom update */
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
+                                  "value_changed"); /* force zoom update */
 
-        update_time_box();
+            update_time_box();
+        }
     }
 }
 /**/
@@ -895,22 +991,32 @@ void menu_zoom10_snap(gpointer null_data, guint callback_action, GtkWidget *widg
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->zoom_pow10_snap =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VZPS]));
-    if (!GLOBALS->zoom_pow10_snap) {
-        status_text("Pow10 Snap Off.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VZPS]),
+            GLOBALS->zoom_pow10_snap =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->zoom_pow10_snap));
     } else {
-        status_text("Pow10 Snap On.\n");
-    }
+        GLOBALS->zoom_pow10_snap =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VZPS]));
+        if (!GLOBALS->zoom_pow10_snap) {
+            status_text("Pow10 Snap Off.\n");
+        } else {
+            status_text("Pow10 Snap On.\n");
+        }
 
-    if (GLOBALS->wave_hslider) {
-        calczoom(GLOBALS->tims.zoom);
-        fix_wavehadj();
+        if (GLOBALS->wave_hslider) {
+            calczoom(GLOBALS->tims.zoom);
+            fix_wavehadj();
 
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
-                              "changed"); /* force zoom update */
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
-                              "value_changed"); /* force zoom update */
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
+                                  "changed"); /* force zoom update */
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider),
+                                  "value_changed"); /* force zoom update */
+        }
     }
 }
 
@@ -949,12 +1055,22 @@ void menu_enable_constant_marker_update(gpointer null_data,
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->constant_marker_update =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VCMU]));
-    if (GLOBALS->constant_marker_update) {
-        status_text("Constant marker update enabled.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VCMU]),
+            GLOBALS->constant_marker_update =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->constant_marker_update));
     } else {
-        status_text("Constant marker update disabled.\n");
+        GLOBALS->constant_marker_update =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VCMU]));
+        if (GLOBALS->constant_marker_update) {
+            status_text("Constant marker update enabled.\n");
+        } else {
+            status_text("Constant marker update disabled.\n");
+        }
     }
 }
 /**/
@@ -965,18 +1081,28 @@ void menu_enable_dynamic_resize(gpointer null_data, guint callback_action, GtkWi
     (void)widget;
     int i;
 
-    GLOBALS->do_resize_signals =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VDR]));
-    if (GLOBALS->do_resize_signals) {
-        status_text("Resizing enabled.\n");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VDR]),
+            GLOBALS->do_resize_signals =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->do_resize_signals));
     } else {
-        status_text("Resizing disabled.\n");
-    }
+        GLOBALS->do_resize_signals =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VDR]));
+        if (GLOBALS->do_resize_signals) {
+            status_text("Resizing enabled.\n");
+        } else {
+            status_text("Resizing disabled.\n");
+        }
 
-    if (GLOBALS->signalarea && GLOBALS->wavearea) {
-        for (i = 0; i < 2; i++) {
-            GLOBALS->signalwindow_width_dirty = 1;
-            redraw_signals_and_waves();
+        if (GLOBALS->signalarea && GLOBALS->wavearea) {
+            for (i = 0; i < 2; i++) {
+                GLOBALS->signalwindow_width_dirty = 1;
+                redraw_signals_and_waves();
+            }
         }
     }
 }
@@ -1068,11 +1194,15 @@ void menu_quit_callback(GtkWidget *widget, gpointer data)
 {
     (void)widget;
 
+    char sstr[32];
+
     if (data) {
 #ifdef __CYGWIN__
         kill_stems_browser();
 #endif
         g_print("Exiting.\n");
+        sprintf(sstr, "%d", GLOBALS->this_context_page);
+        gtkwavetcl_setvar(WAVE_TCLCB_QUIT_PROGRAM, sstr, WAVE_TCLCB_QUIT_PROGRAM_FLAGS);
 
         exit(0);
     }
@@ -1117,6 +1247,7 @@ void menu_quit_close_callback(GtkWidget *widget, gpointer dummy_data)
     gboolean is_mf = (GLOBALS->loaded_file_type == MISSING_FILE);
 
     sprintf(sstr, "%d", this_page);
+    gtkwavetcl_setvar(WAVE_TCLCB_CLOSE_TAB_NUMBER, sstr, WAVE_TCLCB_CLOSE_TAB_NUMBER_FLAGS);
 
     kill_stems_browser_single(GLOBALS);
     dead_context_sweep();
@@ -1450,23 +1581,21 @@ static unsigned expand_trace(GwTrace *t_top)
                 }
             }
         } else {
-            GwNode *node = t->n.nd;
-
-            if (node->mv.mvlfac != NULL) {
-                import_trace(node);
-            }
-
-            GwExpandInfo *e = gw_node_expand(node);
+            eptr e = ExpandNode(t->n.nd);
             int i;
             if (!e) {
                 /* 		      if(t->n.nd->expansion) t->n.nd->expansion->refcnt++; */
                 /* 		      AddNode(t->n.nd,NULL); */
             } else {
+                int dhc_sav = GLOBALS->do_hier_compress;
+                GLOBALS->do_hier_compress = 0;
                 for (i = 0; i < e->width; i++) {
                     GLOBALS->which_t_color = color;
                     AddNode(e->narray[i], NULL);
                 }
-                gw_expand_info_free(e);
+                GLOBALS->do_hier_compress = dhc_sav;
+                free_2(e->narray);
+                free_2(e);
             }
         }
 
@@ -1603,8 +1732,14 @@ void menu_toggle_group(gpointer null_data, guint callback_action, GtkWidget *wid
     if (dirty_group) {
         if (IsClosed(t)) {
             menu_open_group(widget, null_data);
+            gtkwavetcl_setvar(WAVE_TCLCB_OPEN_TRACE_GROUP,
+                              t->name,
+                              WAVE_TCLCB_OPEN_TRACE_GROUP_FLAGS);
         } else {
             menu_close_group(widget, null_data);
+            gtkwavetcl_setvar(WAVE_TCLCB_CLOSE_TRACE_GROUP,
+                              t->name,
+                              WAVE_TCLCB_CLOSE_TRACE_GROUP_FLAGS);
         }
         return;
     }
@@ -1612,6 +1747,7 @@ void menu_toggle_group(gpointer null_data, guint callback_action, GtkWidget *wid
         ClearTraces();
         t->flags |= TR_HIGHLIGHT;
         menu_expand(null_data, 0, widget);
+        gtkwavetcl_setvar(WAVE_TCLCB_OPEN_TRACE_GROUP, t->name, WAVE_TCLCB_OPEN_TRACE_GROUP_FLAGS);
         return;
     }
 
@@ -1690,10 +1826,14 @@ static void menu_rename(GtkWidget *widget, gpointer data)
     }
 
     if (GLOBALS->trace_to_alias_menu_c_1) {
-        char *current = GetFullName(GLOBALS->trace_to_alias_menu_c_1);
+        int was_packed = HIER_DEPACK_ALLOC;
+        char *current = GetFullName(GLOBALS->trace_to_alias_menu_c_1, &was_packed);
         ClearTraces();
         GLOBALS->trace_to_alias_menu_c_1->flags |= TR_HIGHLIGHT;
         entrybox("Trace Name", 300, current, NULL, 128, G_CALLBACK(rename_cleanup));
+        if (was_packed) {
+            free_2(current);
+        }
     } else {
         must_sel();
     }
@@ -1804,13 +1944,7 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
                             }
                         }
                     } else {
-                        GwNode *node = t->n.nd;
-
-                        if (node->mv.mvlfac != NULL) {
-                            import_trace(node);
-                        }
-
-                        GwExpandInfo *e = gw_node_expand(node);
+                        eptr e = ExpandNode(t->n.nd);
                         int ix;
                         if (!e) {
                             if (t->n.nd->expansion)
@@ -1825,7 +1959,8 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
                                 n[nodepnt++] = e->narray[ix];
                                 e->narray[ix]->expansion->refcnt++;
                             }
-                            gw_expand_info_free(e);
+                            free_2(e->narray);
+                            free_2(e);
                         }
                     }
                 }
@@ -2030,6 +2165,7 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
             int ix, offset;
             char *nam;
             char *namex;
+            int was_packed = HIER_DEPACK_ALLOC;
 
             int row = 0, bit = 0;
             int row2 = 0, bit2 = 0;
@@ -2038,7 +2174,7 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
             char *namey;
             char sep2d = ':';
 
-            namex = n[0]->nname;
+            namex = hier_decompress_flagged(n[0]->nname, &was_packed);
 
             offset = strlen(namex);
             for (ix = offset - 1; ix >= 0; ix--) {
@@ -2071,10 +2207,13 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
 
             nam = (char *)g_alloca(offset + 50); /* to handle [a:b][c:d] case */
             memcpy(nam, namex, offset);
+            if (was_packed) {
+                free_2(namex);
+            }
 
             if (is_2d) {
                 is_2d = 0;
-                namey = n[nodepnt - 1]->nname;
+                namey = hier_decompress_flagged(n[nodepnt - 1]->nname, &was_packed);
 
                 offsety = strlen(namey);
                 for (iy = offsety - 1; iy >= 0; iy--) {
@@ -2107,6 +2246,10 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
                             }
                         }
                     }
+                }
+
+                if (was_packed) {
+                    free_2(namey);
                 }
             }
 
@@ -2344,14 +2487,7 @@ void menu_new_viewer_cleanup(GtkWidget *widget, gpointer data)
             return;
         }
 
-// Using `open` instead of calling the GTKWave binary directly seems to only be
-// necessary if GTKWave is installed as an `.app` and breaks if GTKWave is
-// installed as a regular binary.
-//
-// See https://github.com/gtkwave/gtkwave/issues/378
-//
-// #ifdef MAC_INTEGRATION
-#if 0
+#ifdef MAC_INTEGRATION
         /* from : @pfx = split(' ', "open -n -W -a gtkwave --args --chdir dummy"); */
         if (GLOBALS->optimize_vcd) {
             execlp("open",
@@ -2508,6 +2644,11 @@ int menu_new_viewer_tab_cleanup_2(char *fname, int optimize_vcd)
 		strcpy2_into_new_context(GLOBALS, &GLOBALS->filesel_print_ps_renderopt_c_1, &g_old->filesel_print_ps_renderopt_c_1);
 		strcpy2_into_new_context(GLOBALS, &GLOBALS->filesel_print_mif_renderopt_c_1, &g_old->filesel_print_mif_renderopt_c_1);
 #endif
+
+        /* not sure what's really needed here */
+        /* for now, add back in repscript_name */
+        GLOBALS->repscript_period = g_old->repscript_period;
+        strcpy2_into_new_context(GLOBALS, &GLOBALS->repscript_name, &g_old->repscript_name);
 
         GLOBALS->strace_repeat_count = g_old->strace_repeat_count;
 
@@ -2895,6 +3036,7 @@ void menu_remove_aliases(gpointer null_data, guint callback_action, GtkWidget *w
     while (t) {
         if (HasAlias(t) && IsSelected(t)) {
             char *name_full;
+            int was_packed = HIER_DEPACK_ALLOC;
 
             free_2(t->name_full);
             t->name_full = NULL;
@@ -2902,13 +3044,21 @@ void menu_remove_aliases(gpointer null_data, guint callback_action, GtkWidget *w
             if (t->vector) {
                 name_full = t->n.vec->bvname;
             } else {
-                name_full = t->n.nd->nname;
+                name_full = hier_decompress_flagged(t->n.nd->nname, &was_packed);
             }
 
             t->name = name_full;
             if (GLOBALS->hier_max_level) {
-                t->name = hier_extract(t->name, GLOBALS->hier_max_level);
+                if (!was_packed) {
+                    t->name = hier_extract(t->name, GLOBALS->hier_max_level);
+                } else {
+                    t->name = strdup_2(hier_extract(name_full, GLOBALS->hier_max_level));
+                    free_2(name_full);
+                }
             }
+
+            if (was_packed)
+                t->is_depacked = 1;
 
             dirty = 1;
         }
@@ -2993,10 +3143,14 @@ void menu_alias(gpointer null_data, guint callback_action, GtkWidget *widget)
     }
 
     if (GLOBALS->trace_to_alias_menu_c_1) {
-        char *current = GetFullName(GLOBALS->trace_to_alias_menu_c_1);
+        int was_packed = HIER_DEPACK_ALLOC;
+        char *current = GetFullName(GLOBALS->trace_to_alias_menu_c_1, &was_packed);
         ClearTraces();
         GLOBALS->trace_to_alias_menu_c_1->flags |= TR_HIGHLIGHT;
         entrybox("Alias Highlighted Trace", 300, current, NULL, 128, G_CALLBACK(alias_cleanup));
+        if (was_packed) {
+            free_2(current);
+        }
     } else {
         must_sel();
     }
@@ -3370,6 +3524,38 @@ void menu_read_log_file(gpointer null_data, guint callback_action, GtkWidget *wi
                G_CALLBACK(menu_read_log_cleanup),
                G_CALLBACK(NULL),
                NULL,
+               0);
+}
+
+/**/
+void menu_read_script_cleanup(GtkWidget *widget, gpointer data)
+{
+    (void)widget;
+    (void)data;
+
+    char *fname;
+
+    if (GLOBALS->filesel_ok) {
+        DEBUG(printf("Read Script Fini: %s\n", *GLOBALS->fileselbox_text));
+
+        fname = *GLOBALS->fileselbox_text;
+        if ((fname) && strlen(fname)) {
+            execute_script(fname, 0);
+        }
+    }
+}
+/**/
+void menu_read_script_file(gpointer null_data, guint callback_action, GtkWidget *widget)
+{
+    (void)null_data;
+    (void)callback_action;
+    (void)widget;
+
+    fileselbox("Read Script File",
+               &GLOBALS->filesel_scriptfile_menu,
+               G_CALLBACK(menu_read_script_cleanup),
+               G_CALLBACK(NULL),
+               "*.tcl",
                0);
 }
 
@@ -3927,11 +4113,16 @@ static void menu_open_hierarchy_2(gpointer null_data,
                 } else if (t->vector == TRUE) {
                     tname = strdup_2(t->n.vec->bvname);
                 } else {
+                    int flagged = HIER_DEPACK_ALLOC;
+
                     if (!t->n.nd) {
                         break; /* additional guard on top of !HasWave(t) */
                     }
 
-                    tname = strdup_2(t->n.nd->nname);
+                    tname = hier_decompress_flagged(t->n.nd->nname, &flagged);
+                    if (!flagged) {
+                        tname = strdup_2(tname);
+                    }
                 }
 
                 if (tname) {
@@ -4726,9 +4917,19 @@ void menu_center_zooms(gpointer null_data, guint callback_action, GtkWidget *wid
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->do_zoom_center =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VCZ]));
-    DEBUG(printf("Center Zooms\n"));
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VCZ]),
+            GLOBALS->do_zoom_center =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->do_zoom_center));
+    } else {
+        GLOBALS->do_zoom_center =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VCZ]));
+        DEBUG(printf("Center Zooms\n"));
+    }
 }
 
 void menu_show_base(gpointer null_data, guint callback_action, GtkWidget *widget)
@@ -4737,11 +4938,20 @@ void menu_show_base(gpointer null_data, guint callback_action, GtkWidget *widget
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->show_base =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSBS]));
-    GLOBALS->signalwindow_width_dirty = 1;
-    redraw_signals_and_waves();
-    DEBUG(printf("Show Base Symbols\n"));
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSBS]),
+            GLOBALS->show_base = GLOBALS->wave_script_args
+                                     ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                                     : (!GLOBALS->show_base));
+    } else {
+        GLOBALS->show_base =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSBS]));
+        GLOBALS->signalwindow_width_dirty = 1;
+        redraw_signals_and_waves();
+        DEBUG(printf("Show Base Symbols\n"));
+    }
 }
 
 /**/
@@ -4751,19 +4961,28 @@ void menu_fullscreen(gpointer null_data, guint callback_action, GtkWidget *widge
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->fullscreen =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_FULLSCR]));
-    if (GLOBALS->fullscreen) {
-        gtk_window_fullscreen(GTK_WINDOW(GLOBALS->mainwindow));
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_FULLSCR]),
+            GLOBALS->fullscreen = GLOBALS->wave_script_args
+                                      ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                                      : (!GLOBALS->fullscreen));
     } else {
-        gtk_window_unfullscreen(GTK_WINDOW(GLOBALS->mainwindow));
-    }
+        GLOBALS->fullscreen =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_FULLSCR]));
+        if (GLOBALS->fullscreen) {
+            gtk_window_fullscreen(GTK_WINDOW(GLOBALS->mainwindow));
+        } else {
+            gtk_window_unfullscreen(GTK_WINDOW(GLOBALS->mainwindow));
+        }
 
-    if (GLOBALS->wave_hslider) {
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+        if (GLOBALS->wave_hslider) {
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+        }
+        DEBUG(printf("Fullscreen\n"));
     }
-    DEBUG(printf("Fullscreen\n"));
 }
 
 void service_fullscreen(GtkWidget *text, gpointer data)
@@ -4782,13 +5001,23 @@ void menu_show_grid(gpointer null_data, guint callback_action, GtkWidget *widget
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->display_grid =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSG]));
-    if (GLOBALS->wave_hslider) {
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSG]),
+            GLOBALS->display_grid =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->display_grid));
+    } else {
+        GLOBALS->display_grid =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSG]));
+        if (GLOBALS->wave_hslider) {
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+        }
+        DEBUG(printf("Show Grid\n"));
     }
-    DEBUG(printf("Show Grid\n"));
 }
 
 /**/
@@ -4798,13 +5027,23 @@ void menu_show_wave_highlight(gpointer null_data, guint callback_action, GtkWidg
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->highlight_wavewindow =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_SHW]));
-    if (GLOBALS->wave_hslider) {
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_SHW]),
+            GLOBALS->highlight_wavewindow =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->highlight_wavewindow));
+    } else {
+        GLOBALS->highlight_wavewindow =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_SHW]));
+        if (GLOBALS->wave_hslider) {
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+        }
+        DEBUG(printf("Show Wave Highlight\n"));
     }
-    DEBUG(printf("Show Wave Highlight\n"));
 }
 
 /**/
@@ -4814,13 +5053,23 @@ void menu_show_filled_high_values(gpointer null_data, guint callback_action, Gtk
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->fill_waveform =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_FILL1]));
-    if (GLOBALS->wave_hslider) {
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
-        g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_FILL1]),
+            GLOBALS->fill_waveform =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->fill_waveform));
+    } else {
+        GLOBALS->fill_waveform =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_FILL1]));
+        if (GLOBALS->wave_hslider) {
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "changed");
+            g_signal_emit_by_name(GTK_ADJUSTMENT(GLOBALS->wave_hslider), "value_changed");
+        }
+        DEBUG(printf("Show Filled High Values\n"));
     }
-    DEBUG(printf("Show Filled High Values\n"));
 }
 
 /**/
@@ -4830,13 +5079,22 @@ void menu_lz_removal(gpointer null_data, guint callback_action, GtkWidget *widge
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->lz_removal =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_LZ_REMOVAL]));
-    if (GLOBALS->signalarea && GLOBALS->wavearea) {
-        GLOBALS->signalwindow_width_dirty = 1;
-        redraw_signals_and_waves();
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_LZ_REMOVAL]),
+            GLOBALS->lz_removal = GLOBALS->wave_script_args
+                                      ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                                      : (!GLOBALS->lz_removal));
+    } else {
+        GLOBALS->lz_removal =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_LZ_REMOVAL]));
+        if (GLOBALS->signalarea && GLOBALS->wavearea) {
+            GLOBALS->signalwindow_width_dirty = 1;
+            redraw_signals_and_waves();
+        }
+        DEBUG(printf("Leading Zero Removal\n"));
     }
-    DEBUG(printf("Leading Zero Removal\n"));
 }
 
 /**/
@@ -4846,9 +5104,19 @@ void menu_show_mouseover(gpointer null_data, guint callback_action, GtkWidget *w
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->disable_mouseover =
-        !gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSMO]));
-    DEBUG(printf("Show Mouseover\n"));
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSMO]),
+            !(GLOBALS->disable_mouseover =
+                  GLOBALS->wave_script_args
+                      ? (atoi_64(GLOBALS->wave_script_args->payload) ? FALSE : TRUE)
+                      : (!GLOBALS->disable_mouseover)));
+    } else {
+        GLOBALS->disable_mouseover =
+            !gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSMO]));
+        DEBUG(printf("Show Mouseover\n"));
+    }
 }
 
 /**/
@@ -4858,9 +5126,19 @@ void menu_clipboard_mouseover(gpointer null_data, guint callback_action, GtkWidg
     (void)callback_action;
     (void)widget;
 
-    GLOBALS->clipboard_mouseover =
-        gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSMC]));
-    DEBUG(printf("Mouseover Copies To Clipboard\n"));
+    if (GLOBALS->tcl_menu_toggle_item) {
+        GLOBALS->tcl_menu_toggle_item = FALSE; /* to avoid retriggers */
+        gtk_check_menu_item_set_active(
+            GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSMC]),
+            GLOBALS->clipboard_mouseover =
+                GLOBALS->wave_script_args
+                    ? (atoi_64(GLOBALS->wave_script_args->payload) ? TRUE : FALSE)
+                    : (!GLOBALS->clipboard_mouseover));
+    } else {
+        GLOBALS->clipboard_mouseover =
+            gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(menu_wlist[WV_MENU_VSMC]));
+        DEBUG(printf("Mouseover Copies To Clipboard\n"));
+    }
 }
 /**/
 
@@ -4925,6 +5203,14 @@ static gtkwave_mlist_t menu_items[] = {
                 WV_MENU_FRSTMF,
                 "<Item>"),
     WAVE_GTKIFE("/File/<separator>", NULL, NULL, WV_MENU_SEP2STMF, "<Separator>"),
+#if defined(HAVE_LIBTCL)
+    WAVE_GTKIFE("/File/Read Tcl Script File",
+                NULL,
+                menu_read_script_file,
+                WV_MENU_TCLSCR,
+                "<Item>"),
+    WAVE_GTKIFE("/File/<separator>", NULL, NULL, WV_MENU_TCLSEP, "<Separator>"),
+#endif
 
     WAVE_GTKIFE("/File/Quit", "<Control>Q", menu_quit, WV_MENU_FQY, "<Item>"),
 
@@ -5636,6 +5922,9 @@ void menu_set_sensitive(void)
         switch (i) {
             case WV_MENU_FONVT:
             case WV_MENU_WCLOSE:
+#if defined(HAVE_LIBTCL)
+            case WV_MENU_TCLSCR:
+#endif
             case WV_MENU_FQY:
 #ifdef MAC_INTEGRATION
             case WV_MENU_HWM:
@@ -5688,6 +5977,71 @@ int file_quit_cmd_callback(GtkWidget *widget, gpointer data)
 
     return (
         TRUE); /* keeps "delete_event" from happening...we'll manually destory later if need be */
+}
+
+/*
+ * RPC
+ */
+int execute_script(char *name, int dealloc_name)
+{
+    unsigned int i;
+    int nlen = strlen(name);
+
+    if (GLOBALS->tcl_running) {
+        fprintf(stderr, "Could not run script file '%s', as one is already running.\n", name);
+
+        if (dealloc_name) {
+            free_2(name);
+        }
+
+        return (0);
+    }
+
+    GLOBALS->tcl_running = 1;
+
+    if (1) /* all scripts are Tcl now */
+    {
+#if defined(HAVE_LIBTCL)
+        int tclrc;
+        char *tcl_cmd = g_alloca(
+            8 + nlen + 1 + 1); /* originally a malloc, but the script can change the context! */
+        strcpy(tcl_cmd, "source {");
+        strcpy(tcl_cmd + 8, name);
+        strcpy(tcl_cmd + 8 + nlen, "}");
+
+        fprintf(stderr, "GTKWAVE | Executing Tcl script '%s'\n", name);
+
+        if (dealloc_name) {
+            free_2(name);
+        }
+
+#ifdef WIN32
+        {
+            char *slashfix = tcl_cmd;
+            while (*slashfix) {
+                if (*slashfix == '\\')
+                    *slashfix = '/';
+                slashfix++;
+            }
+        }
+#endif
+
+        tclrc = Tcl_Eval(GLOBALS->interp, tcl_cmd);
+        if (tclrc != TCL_OK) {
+            fprintf(stderr, "GTKWAVE | %s\n", Tcl_GetStringResult(GLOBALS->interp));
+        }
+#else
+        fprintf(stderr, "GTKWAVE | Tcl support not compiled into gtkwave, exiting.\n");
+        exit(255);
+#endif
+    }
+
+    for (i = 0; i < GLOBALS->num_notebook_pages; i++) {
+        (*GLOBALS->contexts)[i]->wave_script_args = NULL; /* just in case there was a CTX swap */
+    }
+
+    GLOBALS->tcl_running = 0;
+    return (0);
 }
 
 gtkwave_mlist_t *retrieve_menu_items_array(int *num_items)
@@ -6345,6 +6699,9 @@ GtkWidget *alt_menu_top(GtkWidget *window)
             switch (i) {
                 case WV_MENU_FONVT:
                 case WV_MENU_WCLOSE:
+#if defined(HAVE_LIBTCL)
+                case WV_MENU_TCLSCR:
+#endif
                 case WV_MENU_FQY:
 #ifdef MAC_INTEGRATION
                 case WV_MENU_HWM:
@@ -6389,6 +6746,9 @@ GtkWidget *alt_menu_top(GtkWidget *window)
     gtk_window_add_accel_group(GTK_WINDOW(window), global_accel);
 
 #ifdef MAC_INTEGRATION
+#if defined(HAVE_LIBTCL)
+    gtk_widget_hide(menu_wlist[WV_MENU_TCLSEP]);
+#endif
     gtk_widget_hide(menu_wlist[WV_MENU_FQY]);
 #endif
 
@@ -6398,55 +6758,17 @@ GtkWidget *alt_menu_top(GtkWidget *window)
 }
 
 #ifdef MAC_INTEGRATION
-static void osx_menu_set_sensitive_all(gboolean tr)
+void osx_menu_sensitivity(gboolean tr)
 {
     GtkWidget *mw;
     int nmenu_items = sizeof(menu_items) / sizeof(menu_items[0]);
+    int i;
 
-    for (int i = 0; i < nmenu_items; i++) {
+    for (i = 0; i < nmenu_items; i++) {
         mw = menu_wlist[i];
         if (mw) {
             if (menu_items[i].callback) {
                 gtk_widget_set_sensitive(mw, tr);
-            }
-        }
-    }
-}
-
-/*
- * Since menu in OSX is outside of the main window
- * Users can still interact with it even a modal
- * dialog is popped up
- */
-void osx_menu_sensitivity(gboolean tr)
-{
-    if (tr == FALSE) {
-        // Disabling requires no additional logic
-        osx_menu_set_sensitive_all(FALSE);
-    } else {
-        if (GLOBALS->loaded_file_type != MISSING_FILE) {
-            osx_menu_set_sensitive_all(TRUE);
-        } else {
-            GtkWidget *mw;
-            int nmenu_items = sizeof(menu_items) / sizeof(menu_items[0]);
-
-            for (int i = 0; i < nmenu_items; i++) {
-                switch (i) {
-                    case WV_MENU_FONVT:
-                    case WV_MENU_WCLOSE:
-                    case WV_MENU_FQY:
-                    case WV_MENU_HWM:
-                    case WV_MENU_HWV:
-                        mw = menu_wlist[i];
-                        if (mw) {
-                            if (menu_items[i].callback) {
-                                gtk_widget_set_sensitive(mw, TRUE);
-                            }
-                        }
-                        break;
-                    default:
-                        break;
-                }
             }
         }
     }
@@ -6467,6 +6789,40 @@ void wave_gtk_grab_remove(GtkWidget *w)
     gtk_grab_remove(w);
 
 #ifdef MAC_INTEGRATION
-    osx_menu_sensitivity(TRUE);
+    if (GLOBALS->loaded_file_type != MISSING_FILE) {
+        osx_menu_sensitivity(TRUE);
+    } else {
+        int i;
+        GtkWidget *mw;
+        int nmenu_items = sizeof(menu_items) / sizeof(menu_items[0]);
+
+        for (i = 0; i < nmenu_items; i++) {
+            switch (i) {
+                case WV_MENU_FONVT:
+                case WV_MENU_WCLOSE:
+#if defined(HAVE_LIBTCL)
+                case WV_MENU_TCLSCR:
+#endif
+                case WV_MENU_FQY:
+#ifdef MAC_INTEGRATION
+                case WV_MENU_HWM:
+#endif
+                case WV_MENU_HWV:
+                    mw = menu_wlist[i];
+                    if (mw) {
+#ifdef MAC_INTEGRATION
+                        if (menu_items[i].callback)
+#endif
+                        {
+                            gtk_widget_set_sensitive(mw, TRUE);
+                        }
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+        }
+    }
 #endif
 }

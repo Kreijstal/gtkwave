@@ -277,12 +277,17 @@ void fill_sig_store(void)
              (wrexm || (wrexm = wave_regex_match(t->name, WAVE_REGEX_TREE))))) {
             gtk_list_store_prepend(GLOBALS->sig_store_treesearch_gtk2_c_1, &iter);
 
-                    s, 
-                    (((GLOBALS->supplemental_datatypes_encountered) &&
-                      (!GLOBALS->supplemental_vartypes_encountered))
-                         ? (varxt ? varxt_pnt : gw_var_data_type_to_string(vardt))
-                         : gw_var_type_to_string(vartype)),
-                    gw_var_dir_to_string(vardir));
+            gtk_list_store_set(GLOBALS->sig_store_treesearch_gtk2_c_1,
+                               &iter,
+                               NAME_COLUMN,
+                               s,
+                               TYPE_COLUMN,
+                               (((GLOBALS->supplemental_datatypes_encountered) &&
+                                 (!GLOBALS->supplemental_vartypes_encountered))
+                                    ? (varxt ? varxt_pnt : gw_var_data_type_to_string(vardt))
+                                    : gw_var_type_to_string(vartype)),
+                               DIR_COLUMN,
+                               gw_var_dir_to_string(vardir));
             if (is_tname) {
                 gtk_list_store_set(GLOBALS->sig_store_treesearch_gtk2_c_1,
                                    &iter,

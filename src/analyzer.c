@@ -503,17 +503,27 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
         if (!GLOBALS->hier_max_level) {
             int flagged = HIER_DEPACK_ALLOC;
 
-            t->name = hier_decompress_flagged(nd->nname, &flagged);
-            t->is_depacked = (flagged != 0);
+            if (nd->nname) {
+                t->name = hier_decompress_flagged(nd->nname, &flagged);
+                t->is_depacked = (flagged != 0);
+            } else {
+                t->name = strdup_2("(unnamed)");
+                t->is_depacked = 0;
+            }
         } else {
             int flagged = HIER_DEPACK_ALLOC;
-            char *tbuff = hier_decompress_flagged(nd->nname, &flagged);
-            if (!flagged) {
-                t->name = hier_extract(nd->nname, GLOBALS->hier_max_level);
+            if (nd->nname) {
+                char *tbuff = hier_decompress_flagged(nd->nname, &flagged);
+                if (!flagged) {
+                    t->name = hier_extract(nd->nname, GLOBALS->hier_max_level);
+                } else {
+                    t->name = strdup_2(hier_extract(tbuff, GLOBALS->hier_max_level));
+                    free_2(tbuff);
+                    t->is_depacked = 1;
+                }
             } else {
-                t->name = strdup_2(hier_extract(tbuff, GLOBALS->hier_max_level));
-                free_2(tbuff);
-                t->is_depacked = 1;
+                t->name = strdup_2("(unnamed)");
+                t->is_depacked = 0;
             }
         }
     }

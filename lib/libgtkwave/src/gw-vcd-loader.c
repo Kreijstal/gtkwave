@@ -516,12 +516,21 @@ static char vlist_value_to_char(guint32 rcv)
 static void regen_harray_from_vlist(GwNode *nd)
 {
     if (!nd->mv.mvlfac_vlist) {
+        g_warning("regen_harray_from_vlist: No vlist data available for node");
         return;
     }
     
     /* Decompress vlist and create traditional history array */
     GwVlistReader *reader = gw_vlist_reader_new(nd->mv.mvlfac_vlist, FALSE);
     if (!reader) {
+        g_critical("regen_harray_from_vlist: Failed to create vlist reader");
+        return;
+    }
+    
+    /* Check if vlist is empty before reading */
+    if (gw_vlist_reader_is_done(reader)) {
+        g_warning("regen_harray_from_vlist: Vlist is empty, no data to regenerate");
+        g_object_unref(reader);
         return;
     }
     
@@ -535,7 +544,20 @@ static void regen_harray_from_vlist(GwNode *nd)
     /* Process the vlist data based on value type */
     if (value_type == '0') {
         /* Single bit values */
+        /* Check if we can read vartype */
+        if (gw_vlist_reader_is_done(reader)) {
+            g_critical("regen_harray_from_vlist: Unexpected end of vlist data while reading vartype");
+            g_object_unref(reader);
+            return;
+        }
         /* guint32 vartype = */ gw_vlist_reader_read_uv32(reader);
+        
+        /* Check if we can read initial value */
+        if (gw_vlist_reader_is_done(reader)) {
+            g_critical("regen_harray_from_vlist: Unexpected end of vlist data while reading initial value");
+            g_object_unref(reader);
+            return;
+        }
         guint32 initial_value = gw_vlist_reader_read_uv32(reader);
         
         /* Create initial history entry */
@@ -546,6 +568,10 @@ static void regen_harray_from_vlist(GwNode *nd)
         
         /* Process all value changes */
         while (!gw_vlist_reader_is_done(reader)) {
+            /* Check if we can read next value */
+            if (gw_vlist_reader_is_done(reader)) {
+                break;
+            }
             guint32 rcv = gw_vlist_reader_read_uv32(reader);
             guint32 time_delta = rcv >> 4;
             char value = vlist_value_to_char(rcv);
@@ -559,6 +585,7 @@ static void regen_harray_from_vlist(GwNode *nd)
         }
     } else {
         /* For other value types, we'll just create a basic entry */
+        g_warning("regen_harray_from_vlist: Unsupported value type '%c', creating default entry", value_type);
         GwHistEnt *he = g_new0(GwHistEnt, 1);
         he->time = current_time;
         he->v.h_val = 'x'; /* Unknown value */

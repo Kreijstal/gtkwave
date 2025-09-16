@@ -152,7 +152,11 @@ guint32 gw_vlist_reader_read_uv32(GwVlistReader *self)
         arr[arr_pos++] = c & 0x7F;
     } while ((c & 0x80) == 0);
 
-    g_assert_cmpint(arr_pos, >, 0);
+    /* Handle case where no bytes were read (empty vlist) */
+    if (arr_pos == 0) {
+        g_critical("gw_vlist_reader_read_uv32: Attempted to read from empty vlist or reached end of vlist data");
+        return 0;
+    }
 
     guint32 accum = 0;
     for (--arr_pos; arr_pos >= 0; arr_pos--) {

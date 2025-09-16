@@ -36,6 +36,7 @@ struct vcdsymbol {
 #else
 #include <sys/time.h>
 #include <unistd.h>
+#include <string.h>
 #endif
 
 #define WAVE_PARTIAL_VCD_RING_BUFFER_SIZE (16 * 1024 * 1024)
@@ -68,6 +69,32 @@ struct _GwVcdPartialLoader
     GwTime partial_start_time;
     GwTime partial_end_time;
     guint consume_countdown;
+
+    /* Debug state tracking */
+    gpointer last_scan_ptr;
+    unsigned char last_validity_byte;
+    int last_len;
+    unsigned char last_bytes[4];
+    int last_invalid_len;
+    gpointer last_vcd_data_ptr;
+    gpointer last_data_content_ptr;
+    gpointer last_invalid_scan_ptr;
+    gpointer last_updated_consume_ptr;
+    gpointer last_wrapped_ptr;
+    int last_no_data_count;
+    unsigned char last_consume_byte;
+    int last_consume_len;
+    int last_consumed_len;
+    char last_consumed_data[256];
+    gpointer last_new_consume_ptr;
+    int last_no_data_call;
+    
+    /* Additional debug state for new debug messages */
+    int last_suspicious_len;
+    gpointer last_suspicious_ptr;
+    unsigned char last_suspicious_byte;
+    gpointer last_vcd_check_ptr;
+    unsigned char last_vcd_check_byte;
 };
 
 G_DEFINE_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW_TYPE_VCD_LOADER)
@@ -126,7 +153,7 @@ static gboolean attach_shared_memory(GwVcdPartialLoader *self, GError **error)
         return FALSE;
     }
 
-    self->shared_memory_ptr = self->consume_ptr = 
+    self->shared_memory_ptr = self->consume_ptr =
         MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, WAVE_PARTIAL_VCD_RING_BUFFER_SIZE);
     if (self->shared_memory_ptr == NULL) {
         g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
@@ -137,8 +164,11 @@ static gboolean attach_shared_memory(GwVcdPartialLoader *self, GError **error)
 #else
     errno = 0;
 
-    self->shared_memory_ptr = self->consume_ptr = 
+    fprintf(stderr, "DEBUG: Attempting to attach to shared memory ID: %08x\n", self->shared_memory_id);
+    self->shared_memory_ptr = self->consume_ptr =
         shmat(self->shared_memory_id, NULL, 0);
+
+    fprintf(stderr, "DEBUG: shmat returned: %p, errno: %d\n", self->shared_memory_ptr, errno);
 
     if (errno) {
 
@@ -149,6 +179,7 @@ static gboolean attach_shared_memory(GwVcdPartialLoader *self, GError **error)
 
 #endif
 
+    fprintf(stderr, "DEBUG: Successfully attached to shared memory at: %p\n", self->shared_memory_ptr);
     return TRUE;
 }
 
@@ -203,32 +234,84 @@ static int consume(GwVcdPartialLoader *self)
 {
     int len;
 
-
-
-
+    // Only print if consume_ptr or first byte has changed
+    if (self->consume_ptr != self->last_scan_ptr || *(char *)self->consume_ptr != self->last_validity_byte) {
+        fprintf(stderr, "DEBUG: consume() called, consume_ptr: %p, first byte: %02x\n",
+                self->consume_ptr, *(char *)self->consume_ptr);
+        self->last_scan_ptr = self->consume_ptr;
+        self->last_validity_byte = *(char *)self->consume_ptr;
+    }
     
     // Check if consume_ptr is within valid bounds
-    if (self->consume_ptr < self->shared_memory_ptr || 
+    if (self->consume_ptr < self->shared_memory_ptr ||
         self->consume_ptr >= (gpointer)((guintptr)self->shared_memory_ptr + WAVE_PARTIAL_VCD_RING_BUFFER_SIZE)) {
         fprintf(stderr, "ERROR: consume_ptr %p is outside shared memory bounds [%p, %p]\n",
-               self->consume_ptr, self->shared_memory_ptr, 
+               self->consume_ptr, self->shared_memory_ptr,
                (gpointer)((guintptr)self->shared_memory_ptr + WAVE_PARTIAL_VCD_RING_BUFFER_SIZE));
         return 0;
     }
     
-    self->consume_countdown--;
-    if (!self->consume_countdown) {
-        self->consume_countdown = 100000;
-
+    // Simple approach: Only check current consume_ptr like the original shmidcat
+    // Don't scan through the entire buffer - this causes misalignment issues
+    unsigned char validity_byte = *(char *)self->consume_ptr;
+    
+    if (validity_byte == 1 || validity_byte == 2) {
+        // Found valid data block at current consume_ptr
+        if (self->consume_ptr != self->last_scan_ptr || validity_byte != self->last_validity_byte) {
+            fprintf(stderr, "DEBUG: Found data block at consume_ptr: %p, first byte: %02x\n",
+                    self->consume_ptr, validity_byte);
+            self->last_scan_ptr = self->consume_ptr;
+            self->last_validity_byte = validity_byte;
+        }
+        
+        len = get_32(self, self->consume_ptr + 1);
+        
+        unsigned char current_bytes[4] = {
+            get_8(self, self->consume_ptr + 1),
+            get_8(self, self->consume_ptr + 2),
+            get_8(self, self->consume_ptr + 3),
+            get_8(self, self->consume_ptr + 4)
+        };
+        
+        if (len != self->last_len ||
+            memcmp(current_bytes, self->last_bytes, sizeof(current_bytes)) != 0) {
+            fprintf(stderr, "DEBUG: Data block length: %d bytes (raw bytes: %02x %02x %02x %02x)\n",
+                    len,
+                    current_bytes[0],
+                    current_bytes[1],
+                    current_bytes[2],
+                    current_bytes[3]);
+            self->last_len = len;
+            memcpy(self->last_bytes, current_bytes, sizeof(self->last_bytes));
+        }
+        
+        // Basic sanity check - reject obviously corrupted lengths
+        if (len <= 0 || len > WAVE_PARTIAL_VCD_RING_BUFFER_SIZE) {
+            fprintf(stderr, "DEBUG: Invalid block length %d, skipping\n", len);
+            return 0;
+        }
+    } else {
+        // No valid data at current consume_ptr
         return 0;
     }
-
+    
+    // Removed scan_count logic since we're not scanning the entire buffer anymore
+    // If we reach here, we have a valid block to process
+    
 
     if ((len = *(char *)self->consume_ptr)) {
         int i;
 
+        if (len != self->last_consume_byte) {
+            fprintf(stderr, "DEBUG: Found data block at consume_ptr, first byte: %02x\n", len);
+            self->last_consume_byte = len;
+        }
 
         len = get_32(self, self->consume_ptr + 1);
+        if (len != self->last_consume_len) {
+            fprintf(stderr, "DEBUG: Data block length: %d bytes\n", len);
+            self->last_consume_len = len;
+        }
 
         for (i = 0; i < len; i++) {
             gpointer src_ptr = self->consume_ptr + i + 5;
@@ -247,27 +330,43 @@ static int consume(GwVcdPartialLoader *self)
         }
         GW_VCD_LOADER(self)->vcdbuf[i] = 0;
 
-
-
+        if (len != self->last_consumed_len ||
+            (len > 0 && strncmp(GW_VCD_LOADER(self)->vcdbuf, self->last_consumed_data, len) != 0)) {
+            fprintf(stderr, "DEBUG: Consumed %d bytes of data: %s\n", len, GW_VCD_LOADER(self)->vcdbuf);
+            self->last_consumed_len = len;
+            if (len > 0) {
+                size_t copy_len = len;
+                if (copy_len > sizeof(self->last_consumed_data) - 1) {
+                    copy_len = sizeof(self->last_consumed_data) - 1;
+                }
+                strncpy(self->last_consumed_data, GW_VCD_LOADER(self)->vcdbuf, copy_len);
+                self->last_consumed_data[copy_len] = '\0';
+            }
+        }
 
         *(char *)self->consume_ptr = 0;
 
 
         self->consume_ptr = (gpointer)((guintptr)self->consume_ptr + i + 5);
-        if (self->consume_ptr >= 
+        if (self->consume_ptr >=
             ((gpointer)self->shared_memory_ptr + WAVE_PARTIAL_VCD_RING_BUFFER_SIZE)) {
 
             self->consume_ptr = (gpointer)((guintptr)self->consume_ptr - WAVE_PARTIAL_VCD_RING_BUFFER_SIZE);
         }
 
-
+        if (self->consume_ptr != self->last_new_consume_ptr) {
+            fprintf(stderr, "DEBUG: New consume_ptr: %p\n", self->consume_ptr);
+            self->last_new_consume_ptr = self->consume_ptr;
+        }
         return len;
     }
 
-
+    if (self->last_no_data_call == 0) {
+        fprintf(stderr, "DEBUG: No data available at consume_ptr\n");
+        self->last_no_data_call = 1;
+    }
     return 0;
 }
-
 /* Override getch_fetch for partial VCD */
 static int vcd_partial_getch_fetch(GwVcdLoader *loader)
 {
@@ -292,6 +391,9 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
 /* Partial VCD parsing */
 static void vcd_partial_parse(GwVcdPartialLoader *self, GError **error)
 {
+    fprintf(stderr, "DEBUG: vcd_partial_parse() called, consume_ptr: %p, first byte: %02x\n",
+            self->consume_ptr, *(char *)self->consume_ptr);
+    
     if (self->consume_ptr) {
     }
     GwVcdLoader *vcd_loader = GW_VCD_LOADER(self);
@@ -300,6 +402,9 @@ static void vcd_partial_parse(GwVcdPartialLoader *self, GError **error)
     vcd_loader->getch_fetch_override = vcd_partial_getch_fetch;
         
     while (*error == NULL && *(char *)self->consume_ptr) {
+        fprintf(stderr, "DEBUG: Starting parse loop, consume_ptr: %p, first byte: %02x\n",
+                self->consume_ptr, *(char *)self->consume_ptr);
+        
         /* Use the parent's parsing state machine but with our getch_fetch */
         vcd_parse(vcd_loader, error);
             
@@ -316,12 +421,15 @@ static void vcd_partial_parse(GwVcdPartialLoader *self, GError **error)
             
         /* Check if we should continue parsing */
         if (!*(char *)self->consume_ptr) {
+            fprintf(stderr, "DEBUG: Breaking parse loop - no more data\n");
             break;
         }
     }
         
     /* Restore original getch_fetch */
     vcd_loader->getch_fetch_override = NULL;
+    
+    fprintf(stderr, "DEBUG: vcd_partial_parse() completed\n");
 }
 
 /* Partial VCD symbol building */
@@ -642,6 +750,8 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 {
     g_return_if_fail(GW_IS_VCD_PARTIAL_LOADER(self));
     
+    fprintf(stderr, "DEBUG: kick_partial_vcd() called\n");
+    
     if (self->streaming_enabled && self->is_partial_vcd) {
 #ifdef __MINGW32__
         Sleep(10);
@@ -652,13 +762,18 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
         select(0, NULL, NULL, NULL, &tv);
 #endif
 
+        fprintf(stderr, "DEBUG: About to parse new data from shared memory\n");
         GError *error = NULL;
         vcd_partial_parse(self, &error);
         
         if (error) {
             g_warning("Partial VCD parsing error: %s", error->message);
             g_error_free(error);
+        } else {
+            fprintf(stderr, "DEBUG: Successfully parsed new data\n");
         }
+    } else {
+        fprintf(stderr, "DEBUG: kick_partial_vcd() called but streaming not enabled\n");
     }
 }
 
@@ -855,7 +970,6 @@ GwDumpFile *gw_vcd_partial_loader_load(GwLoader *loader, const gchar *fname, GEr
 
 
     /* Initialize partial VCD state */
-    self->consume_countdown = 100000;
     self->partial_start_time = GW_TIME_CONSTANT(-1);
     self->partial_end_time = GW_TIME_CONSTANT(-1);
 
@@ -958,7 +1072,26 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
     self->update_callback_data = NULL;
     self->partial_start_time = GW_TIME_CONSTANT(-1);
     self->partial_end_time = GW_TIME_CONSTANT(-1);
-    self->consume_countdown = 100000;
+    self->consume_countdown = 0;
+
+    /* Initialize debug state tracking */
+    self->last_scan_ptr = NULL;
+    self->last_validity_byte = 0;
+    self->last_len = 0;
+    memset(self->last_bytes, 0, sizeof(self->last_bytes));
+    self->last_invalid_len = 0;
+    self->last_vcd_data_ptr = NULL;
+    self->last_data_content_ptr = NULL;
+    self->last_invalid_scan_ptr = NULL;
+    self->last_updated_consume_ptr = NULL;
+    self->last_wrapped_ptr = NULL;
+    self->last_no_data_count = 0;
+    self->last_consume_byte = 0;
+    self->last_consume_len = 0;
+    self->last_consumed_len = 0;
+    memset(self->last_consumed_data, 0, sizeof(self->last_consumed_data));
+    self->last_new_consume_ptr = NULL;
+    self->last_no_data_call = 0;
 }
 
 /* Public constructor */

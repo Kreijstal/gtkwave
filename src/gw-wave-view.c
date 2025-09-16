@@ -217,7 +217,7 @@ static void renderhash(GwWaveView *self, cairo_t *cr, GwWaveformColors *colors, 
         return;
 
     rborder = (GLOBALS->tims.last - GLOBALS->tims.start) * GLOBALS->pxns;
-    DEBUG(printf("Rborder: %lld, Wavewidth: %d\n", rborder, GLOBALS->wavewidth));
+    DEBUG(printf("Rborder: %" GW_TIME_FORMAT ", Wavewidth: %d\n", rborder, GLOBALS->wavewidth));
     if (rborder > GLOBALS->wavewidth)
         rborder = GLOBALS->wavewidth;
     if ((rhs = x + GLOBALS->pixelsperframe) > rborder)

@@ -29,6 +29,11 @@ static GPtrArray *import_nodes;
  */
 void import_lx2_trace(GwNode *np)
 {
+    // Do nothing in interactive mode - data is pushed by background timer
+    if (GLOBALS->partial_vcd) {
+        return;
+    }
+
     GwNode *nodes[2] = {np, NULL};
 
     // TODO: report errors

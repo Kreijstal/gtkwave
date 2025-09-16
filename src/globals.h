@@ -235,6 +235,7 @@ struct Global
     char *skip_end;
     enum FileType loaded_file_type;
     char is_optimized_stdin_vcd;
+    char partial_vcd; /* flag for interactive VCD loading */
     char *whoami; /* from main.c 201 */
     struct logfile_chain *logfile; /* from main.c 202 */
     char *stems_name; /* from main.c 203 */

@@ -28,6 +28,7 @@
 #include "tcl_helper.h"
 #include "signal_list.h"
 #include "gw-named-marker-dialog.h"
+#include "vcd_partial_adapter.h"
 #include <cocoa_misc.h>
 #include <assert.h>
 
@@ -1074,6 +1075,7 @@ void menu_quit_callback(GtkWidget *widget, gpointer data)
 #endif
         g_print("Exiting.\n");
 
+        vcd_partial_cleanup();
         exit(0);
     }
 }
@@ -1163,6 +1165,8 @@ void menu_quit_close_callback(GtkWidget *widget, gpointer dummy_data)
     gtk_window_set_title(GTK_WINDOW(GLOBALS->mainwindow), GLOBALS->winname);
 
     redraw_signals_and_waves();
+    
+    vcd_partial_cleanup();
 }
 
 void menu_quit_close(gpointer null_data, guint callback_action, GtkWidget *widget)

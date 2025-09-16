@@ -442,7 +442,7 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
 
     if (!nd)
         return (0); /* passed it a null node ptr by mistake */
-    if (nd->mv.mvlfac)
+    if (nd->mv.mvlfac && !GLOBALS->partial_vcd)
         import_trace(nd);
 
     GLOBALS->signalwindow_width_dirty = 1;

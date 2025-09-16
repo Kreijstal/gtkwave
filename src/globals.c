@@ -206,6 +206,7 @@ static const struct Global globals_base_values = {
     NULL, /* skip_end */
     MISSING_FILE, /* loaded_file_type */
     0, /* is_optimized_stdin_vcd */
+    0, /* partial_vcd */
     NULL, /* whoami 190 */
     NULL, /* logfile 191 */
     NULL, /* stems_name 192 */

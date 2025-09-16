@@ -70,6 +70,7 @@
 #include "gw-fst-file.h"
 
 #include "tcl_helper.h"
+#include "vcd_partial_adapter.h"
 
 #ifdef MAC_INTEGRATION
 #include <gtkosxapplication.h>
@@ -676,6 +677,8 @@ int main_2(int opt_vcd, int argc, char *argv[])
     char fast_exit = 0;
     char opt_errors_encountered = 0;
     char is_missing_file = 0;
+    char is_interactive = 0;
+
 
     char *wname = NULL;
     char *override_rc = NULL;
@@ -901,6 +904,7 @@ do_primary_inits:
                                                    {"xid", 1, 0, 'X'},
                                                    {"nomenus", 0, 0, 'M'},
                                                    {"dualid", 1, 0, 'D'},
+                                                   {"interactive", 0, 0, 'I'},
                                                    {"giga", 0, 0, 'g'},
                                                    {"wish", 0, 0, 'W'},
                                                    {"output", 1, 0, 'O'},
@@ -924,6 +928,9 @@ do_primary_inits:
                 break; /* no more args */
 
             switch (c) {
+                case 'I':
+                    is_interactive = 1;
+                    break;
                 case 'V':
                     printf(WAVE_VERSION_INFO "\n\n"
                                              "This is free software; see the source for copying "
@@ -1190,6 +1197,22 @@ do_primary_inits:
         print_help(argv[0]);
     }
 
+    // Read SHM ID from stdin for interactive mode with -I -v
+    if (is_interactive && is_vcd && strcmp(GLOBALS->loaded_file_name, "-vcd") == 0) {
+        char id_buf[256];
+        fprintf(stderr, "DEBUG: Reading SHM ID from stdin for interactive mode\n");
+        if (fgets(id_buf, sizeof(id_buf), stdin)) {
+            id_buf[strcspn(id_buf, "\r\n")] = 0; // Trim newline
+            fprintf(stderr, "DEBUG: Got SHM ID: %s\n", id_buf);
+            if (GLOBALS->loaded_file_name) free_2(GLOBALS->loaded_file_name);
+            GLOBALS->loaded_file_name = malloc_2(strlen(id_buf) + 1);
+            strcpy(GLOBALS->loaded_file_name, id_buf);
+        } else {
+            fprintf(stderr, "Error: Interactive mode (-I -v) requires the SHM ID to be provided on stdin.\n");
+            exit(1);
+        }
+    }
+
     if (optind < argc) {
         while (optind < argc) {
             if (argv[optind][0] == '-') {
@@ -1432,12 +1455,26 @@ loader_check_head:
 
 #endif
 
-        if (strcmp(GLOBALS->loaded_file_name, "-vcd")) {
-            GLOBALS->loaded_file_type = VCD_RECODER_FILE;
-        } else {
+        if (is_interactive) {
             GLOBALS->loaded_file_type = DUMPLESS_FILE;
+            
+            // Interactive mode - use the filename (which is now the SHM ID)
+            fprintf(stderr, "DEBUG: Using SHM ID for interactive mode: %s\n", GLOBALS->loaded_file_name);
+            GLOBALS->dump_file = vcd_partial_main(GLOBALS->loaded_file_name);
+            
+            if (!GLOBALS->dump_file) {
+                // If the partial loader failed, we can't continue.
+                fprintf(stderr, "DEBUG: Partial loader failed\n");
+                exit(1);
+            }
+        } else {
+            if (strcmp(GLOBALS->loaded_file_name, "-vcd")) {
+                GLOBALS->loaded_file_type = VCD_RECODER_FILE;
+            } else {
+                GLOBALS->loaded_file_type = DUMPLESS_FILE;
+            }
+            GLOBALS->dump_file = vcd_recoder_main(GLOBALS->loaded_file_name);
         }
-        GLOBALS->dump_file = vcd_recoder_main(GLOBALS->loaded_file_name);
     }
 
     // /* reset/initialize various markers and time values */

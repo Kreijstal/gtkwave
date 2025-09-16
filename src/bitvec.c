@@ -682,7 +682,7 @@ ifnode:
 
         for (gint i = 0; i < nodepnt; i++) {
             b->nodes[i] = n[i];
-            if (n[i]->mv.mvlfac)
+            if (n[i]->mv.mvlfac && !GLOBALS->partial_vcd)
                 import_trace(n[i]);
         }
 
@@ -833,7 +833,7 @@ ifnode:
 
         for (i = 0; i < nodepnt; i++) {
             b->nodes[i] = n[i];
-            if (n[i]->mv.mvlfac)
+            if (n[i]->mv.mvlfac && !GLOBALS->partial_vcd)
                 import_trace(n[i]);
 
             b->attribs[i].shift = ba[i].shift;
@@ -892,7 +892,7 @@ GwBits *makevec_chain(char *vec, GwSymbol *sym, int len)
 
         for (i = 0; i < nodepnt; i++) {
             b->nodes[i] = n[i];
-            if (n[i]->mv.mvlfac)
+            if (n[i]->mv.mvlfac && !GLOBALS->partial_vcd)
                 import_trace(n[i]);
         }
 
@@ -1425,7 +1425,7 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
     int curr_row = 0, curr_bit = 0;
     int is_2d = 0;
 
-    if (n->mv.mvlfac)
+    if (n->mv.mvlfac && !GLOBALS->partial_vcd)
         import_trace(n);
 
     if (!n->extvals) {

@@ -1334,6 +1334,8 @@ do_primary_inits:
     }
 
     fprintf(stderr, "\n%s\n\n", WAVE_VERSION_INFO);
+    printf("TEST: This is a test message from GTKWave main function\n");
+    fflush(stdout);
 
     if (!old_g) /* copy all variables earlier when old_g is set */
     {

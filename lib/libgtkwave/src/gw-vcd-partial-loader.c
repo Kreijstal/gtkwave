@@ -351,9 +351,10 @@ static unsigned int vlist_emit_finalize(GwVcdLoader *self)
                 GwVlist *result = gw_vlist_writer_finish(writer);
                 
                 g_object_unref(writer);
-                n->mv.mvlfac_vlist_writer = NULL;
-                /* Store the result after clearing the writer to avoid union aliasing issues */
+                /* Store the result first to avoid union aliasing issues */
                 n->mv.mvlfac_vlist = result;
+                /* Now clear the writer pointer */
+                n->mv.mvlfac_vlist_writer = NULL;
             }
         }
 

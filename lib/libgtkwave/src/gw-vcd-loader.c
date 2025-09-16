@@ -51,82 +51,7 @@ struct vcdsymbol
 #define RCV_L (1 | (5 << 1))
 #define RCV_D (1 | (6 << 1))
 
-struct _GwVcdLoader
-{
-    GwLoader parent_instance;
-
-    FILE *vcd_handle;
-    gboolean is_compressed;
-    off_t vcd_fsiz;
-
-    gboolean header_over;
-
-    gboolean vlist_prepack;
-    gint vlist_compression_level;
-    GwVlist *time_vlist;
-    unsigned int time_vlist_count;
-
-    off_t vcdbyteno;
-    char *vcdbuf;
-    char *vst;
-    char *vend;
-
-    int error_count;
-    gboolean err;
-
-    GwTime current_time;
-
-    struct vcdsymbol *pv;
-    struct vcdsymbol *rootv;
-
-    int T_MAX_STR;
-    char *yytext;
-    int yylen;
-
-    struct vcdsymbol *vcdsymroot;
-    struct vcdsymbol *vcdsymcurr;
-
-    int numsyms;
-    struct vcdsymbol **symbols_sorted;
-    struct vcdsymbol **symbols_indexed;
-
-    guint vcd_minid;
-    guint vcd_maxid;
-    guint vcd_hash_max;
-    gboolean vcd_hash_kill;
-    gint hash_cache;
-    GwSymbol **sym_hash;
-
-    char *varsplit;
-    char *vsplitcurr;
-    int var_prevch;
-
-    gboolean already_backtracked;
-
-    GSList *sym_chain;
-
-    GwBlackoutRegions *blackout_regions;
-
-    GwTime time_scale;
-    GwTimeDimension time_dimension;
-    GwTime start_time;
-    GwTime end_time;
-    GwTime global_time_offset;
-
-    GwTreeNode *tree_root;
-
-    guint numfacs;
-    gchar *prev_hier_uncompressed_name;
-
-    GwTreeNode *terminals_chain;
-    GwTreeBuilder *tree_builder;
-
-    char *module_tree;
-    int module_len_tree;
-
-    gboolean has_escaped_names;
-    guint warning_filesize;
-};
+#include "gw-vcd-loader-private.h"
 
 G_DEFINE_TYPE(GwVcdLoader, gw_vcd_loader, GW_TYPE_LOADER)
 
@@ -154,7 +79,7 @@ static void malform_eof_fix(GwVcdLoader *self)
 
 #undef VCD_BSEARCH_IS_PERFECT /* bsearch is imperfect under linux, but OK under AIX */
 
-static void vcd_build_symbols(GwVcdLoader *self);
+void vcd_build_symbols(GwVcdLoader *self);
 static void vcd_cleanup(GwVcdLoader *self);
 static void evcd_strcpy(char *dst, char *src);
 
@@ -570,14 +495,14 @@ static unsigned int vlist_emit_finalize(GwVcdLoader *self)
 /*
  * single char get inlined/optimized
  */
-static void getch_alloc(GwVcdLoader *self)
+void getch_alloc(GwVcdLoader *self)
 {
     self->vcdbuf = g_malloc0(VCD_BSIZ + 1);
     self->vst = self->vcdbuf;
     self->vend = self->vcdbuf;
 }
 
-static void getch_free(GwVcdLoader *self)
+void getch_free(GwVcdLoader *self)
 {
     g_free(self->vcdbuf);
     self->vcdbuf = NULL;
@@ -587,6 +512,11 @@ static void getch_free(GwVcdLoader *self)
 
 static int getch_fetch(GwVcdLoader *self)
 {
+    // Add this block
+    if (self->getch_fetch_override) {
+        return self->getch_fetch_override(self);
+    }
+
     size_t rd;
 
     errno = 0;
@@ -1610,6 +1540,7 @@ static gboolean vcd_parse_var_regular(GwVcdLoader *self, struct vcdsymbol *v, in
 
 static void vcd_parse_var(GwVcdLoader *self)
 {
+    g_printerr("vcd_parse_var: entering function\n");
     // TODO: why was this disabled?
     // if ((self->header_over) && (0)) {
     //     fprintf(stderr,
@@ -1628,6 +1559,7 @@ static void vcd_parse_var(GwVcdLoader *self)
         self->varsplit = NULL;
     }
     vtok = get_vartoken(self, 1);
+    g_printerr("vcd_parse_var: got vartoken %d\n", vtok);
     if (vtok > V_STRINGTYPE)
         goto bail;
 
@@ -1704,6 +1636,7 @@ static void vcd_parse_var(GwVcdLoader *self)
     }
     self->vcdsymcurr = v;
     self->numsyms++;
+    g_printerr("vcd_parse_var: created symbol, numsyms now %d\n", self->numsyms);
 
     goto bail;
 err:
@@ -1811,12 +1744,19 @@ static void vcd_parse_string(GwVcdLoader *self)
     }
 }
 
-static void vcd_parse(GwVcdLoader *self, GError **error)
+void vcd_parse(GwVcdLoader *self, GError **error)
 {
     g_assert(error != NULL && *error == NULL);
 
     while (*error == NULL) {
-        switch (get_token(self)) {
+        int tok = get_token(self);
+        
+        // In partial loading mode, return on EOF to allow re-entry
+        if (tok == T_EOF && self->getch_fetch_override != NULL) {
+            return;
+        }
+
+        switch (tok) {
             case T_COMMENT:
                 sync_end(self);
                 break;
@@ -1851,6 +1791,10 @@ static void vcd_parse(GwVcdLoader *self, GError **error)
 
             case T_ENDDEFINITIONS:
                 vcd_parse_enddefinitions(self, error);
+                // In partial loading mode, stop parsing after header
+                if (self->getch_fetch_override != NULL) {
+                    return;
+                }
                 break;
 
             case T_STRING:
@@ -1922,7 +1866,7 @@ static GwSymbol *symfind_unsorted(GwVcdLoader *self, char *s)
     return NULL; /* not found, add here if you want to add*/
 }
 
-static void vcd_build_symbols(GwVcdLoader *self)
+void vcd_build_symbols(GwVcdLoader *self)
 {
     int j;
     int max_slen = -1;
@@ -2205,7 +2149,7 @@ static void vcd_cleanup(GwVcdLoader *self)
     g_clear_pointer(&self->yytext, g_free);
 }
 
-static GwFacs *vcd_sortfacs(GwVcdLoader *self)
+GwFacs *vcd_sortfacs(GwVcdLoader *self)
 {
     GwFacs *facs = gw_facs_new(self->numfacs);
 
@@ -2397,7 +2341,7 @@ static void treenamefix(GwTreeNode *t, char delimiter)
     treenamefix_str(t->name, delimiter);
 }
 
-static GwTree *vcd_build_tree(GwVcdLoader *self, GwFacs *facs)
+GwTree *vcd_build_tree(GwVcdLoader *self, GwFacs *facs)
 {
     // TODO: replace module_tree by GString to dynamically allocate enough memory
     self->module_tree = g_malloc0(65536);
@@ -2728,6 +2672,7 @@ static void gw_vcd_loader_init(GwVcdLoader *self)
 
     self->sym_hash = g_new0(GwSymbol *, GW_HASH_PRIME);
     self->warning_filesize = 256;
+    self->getch_fetch_override = NULL;
 }
 
 GwLoader *gw_vcd_loader_new(void)

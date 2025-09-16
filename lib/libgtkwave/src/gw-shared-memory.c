@@ -137,6 +137,8 @@ gw_shared_memory_open(const gchar *id, GError **error)
     GwSharedMemory *shm = g_new0(GwSharedMemory, 1);
     shm->is_owner = FALSE;
     shm->id = g_strdup(id);
+    
+    g_printerr("gw_shared_memory_open: opening SHM ID: %s\n", id);
 
 #if !defined(_WIN32) && !defined(__MINGW32__)
     /* POSIX shared memory - convert hex string to integer */
@@ -147,10 +149,13 @@ gw_shared_memory_open(const gchar *id, GError **error)
                     G_FILE_ERROR_FAILED,
                     "Invalid shared memory ID format: %s",
                     id);
+        g_printerr("gw_shared_memory_open: invalid SHM ID format: %s\n", id);
         g_free(shm->id);
         g_free(shm);
         return NULL;
     }
+    
+    g_printerr("gw_shared_memory_open: converted SHM ID %s to integer: %d\n", id, shmid);
 
     shm->shmid = shmid;
     shm->data = shmat(shm->shmid, NULL, 0);
@@ -160,10 +165,13 @@ gw_shared_memory_open(const gchar *id, GError **error)
                     G_FILE_ERROR_FAILED,
                     "Failed to attach shared memory: %s",
                     g_strerror(errno));
+        g_printerr("gw_shared_memory_open: shmat failed for shmid %d: %s\n", shm->shmid, g_strerror(errno));
         g_free(shm->id);
         g_free(shm);
         return NULL;
     }
+    
+    g_printerr("gw_shared_memory_open: successfully attached to shmid %d at address %p\n", shm->shmid, shm->data);
 
     /* Get the actual size of the shared memory segment */
     struct shmid_ds ds;

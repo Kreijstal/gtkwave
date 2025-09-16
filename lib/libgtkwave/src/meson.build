@@ -29,6 +29,7 @@ libgtkwave_public_sources = [
     'gw-var-enums.c',
     'gw-vcd-file.c',
     'gw-vcd-loader.c',
+    'gw-vcd-partial-loader.c',
 ]
 
 libgtkwave_public_headers = [
@@ -68,6 +69,8 @@ libgtkwave_public_headers = [
     'gw-var-enums.h',
     'gw-vcd-file.h',
     'gw-vcd-loader.h',
+    'gw-vcd-partial-loader.h',
+    'gw-vcd-loader-private.h',
     'gw-vector-ent.h',
 ]
 
@@ -82,6 +85,7 @@ libgtkwave_private_sources = [
 libgtkwave_dependencies = [
     glib_dep,
     gobject_dep,
+    dependency('gio-2.0'),
     libghw_dep,
     libfst_dep,
     libjrb_dep,

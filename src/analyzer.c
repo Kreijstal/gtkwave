@@ -327,6 +327,8 @@ static void AddTrace(GwTrace *t)
 
         GLOBALS->strace_ctx->shadow_straces = st;
     }
+    
+    fprintf(stderr, "DEBUG: AddTrace completed for trace %p\n", t);
 }
 
 /*
@@ -440,21 +442,32 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
     int histcount;
     int i;
 
-    if (!nd)
+    fprintf(stderr, "DEBUG: AddNodeTraceReturn called for node %p\n", nd);
+    if (!nd) {
+        fprintf(stderr, "DEBUG: AddNodeTraceReturn: null node pointer\n");
         return (0); /* passed it a null node ptr by mistake */
-    if (nd->mv.mvlfac && !GLOBALS->partial_vcd)
+    }
+    fprintf(stderr, "DEBUG: Node name: %s, mv.mvlfac: %p, partial_vcd: %d\n", 
+            nd->nname ? nd->nname : "NULL", nd->mv.mvlfac, GLOBALS->partial_vcd);
+    if (nd->mv.mvlfac && !GLOBALS->partial_vcd) {
+        fprintf(stderr, "DEBUG: Calling import_trace\n");
         import_trace(nd);
+    }
 
+    fprintf(stderr, "DEBUG: Setting dirty flags\n");
     GLOBALS->signalwindow_width_dirty = 1;
     GLOBALS->traces.dirty = 1;
 
+    fprintf(stderr, "DEBUG: Allocating trace\n");
     if ((t = calloc_2(1, sizeof(GwTrace))) == NULL) {
         fprintf(stderr, "Out of memory, can't add to analyzer\n");
         return (0);
     }
 
+    fprintf(stderr, "DEBUG: Checking harray for node %p\n", nd);
     if (!nd->harray) /* make quick array lookup for aet display */
     {
+        fprintf(stderr, "DEBUG: Building harray for node %s\n", nd->nname ? nd->nname : "NULL");
         histpnt = &(nd->head);
         histcount = 0;
 
@@ -464,6 +477,7 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
         }
 
         nd->numhist = histcount;
+        fprintf(stderr, "DEBUG: Histcount: %d\n", histcount);
 
         if (!(nd->harray = harray = malloc_2(histcount * sizeof(GwHistEnt *)))) {
             fprintf(stderr, "Out of memory, can't add to analyzer\n");
@@ -525,6 +539,7 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
     if (tret)
         *tret = t; /* for expand */
     AddTrace(t);
+    fprintf(stderr, "DEBUG: AddNodeTraceReturn completed successfully\n");
     return (1);
 }
 

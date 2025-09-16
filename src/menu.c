@@ -1503,6 +1503,7 @@ static unsigned expand_trace(GwTrace *t_top)
     }
 
     GLOBALS->which_t_color = 0;
+    fprintf(stderr, "DEBUG: expand_trace completed, returning %d\n", dirty);
     return dirty;
 }
 

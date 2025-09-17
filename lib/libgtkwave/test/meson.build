@@ -39,14 +39,14 @@ foreach test : libgtkwave_tests
     )
 endforeach
 
+test_env = environment()
+test_env.set('MESON_BUILD_ROOT', meson.build_root())
+test_env.set('MESON_SOURCE_ROOT', meson.source_root())
+
 test_gw_vcd_partial_loader_exe = executable(
     'test-gw-vcd-partial-loader',
     ['test-gw-vcd-partial-loader.c', 'test-util.c'],
     dependencies: libgtkwave_dep,
-    c_args: [
-        '-DSHMIDCAT_PATH="' + meson.build_root() + '/src/helpers/shmidcat"',
-        '-DINPUT_VCD_PATH="' + meson.current_source_dir() + '/files/basic.vcd"'
-    ]
 )
 
 test(
@@ -54,6 +54,7 @@ test(
     test_gw_vcd_partial_loader_exe,
     workdir: meson.current_source_dir(),
     protocol: 'tap',
+    env: test_env,
 )
 
 # First, define the consumer executable so it gets built

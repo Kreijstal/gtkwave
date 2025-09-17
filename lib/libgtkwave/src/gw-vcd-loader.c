@@ -1801,11 +1801,6 @@ void vcd_parse(GwVcdLoader *self, GError **error)
                     // Otherwise, continue parsing time/value data
                 }
                 break;
-                
-            case T_TIME:
-                // Debug: print time value being parsed
-                g_printerr("DEBUG: Parsing time value: %s\n", self->yytext);
-                // Fall through to default handling
 
             case T_STRING:
                 vcd_parse_string(self);

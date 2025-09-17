@@ -24,7 +24,11 @@
 #include <glib/gstdio.h>
 #include <unistd.h>
 #include <signal.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <windows.h>
+#else
 #include <sys/wait.h>
+#endif
 #include "gw-vcd-partial-loader.h"
 #include "gw-dump-file.h"
 #include "gw-facs.h"
@@ -148,8 +152,12 @@ static void test_incremental_loading(void)
     g_free(shm_id_str);
 
     // Wait for shmidcat to exit
+#if defined(_WIN32) || defined(__MINGW32__)
+    WaitForSingleObject(shmidcat_pid, INFINITE);
+#else
     int status;
     waitpid(shmidcat_pid, &status, 0);
+#endif
     g_spawn_close_pid(shmidcat_pid);
 
     g_free(shmidcat_path);

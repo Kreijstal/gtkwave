@@ -129,3 +129,17 @@ foreach test : dumpfile_tests
         args: ['-u', golden_file, dump_target],
     )
 endforeach
+
+test_gw_slow_stream_exe = executable(
+    'test-gw-slow-stream',
+    ['test-gw-slow-stream.c', 'test-util.c'],
+    dependencies: libgtkwave_dep,
+)
+
+test(
+    'test-gw-slow-stream',
+    test_gw_slow_stream_exe,
+    workdir: meson.current_source_dir(),
+    protocol: 'tap',
+    env: test_env,
+)

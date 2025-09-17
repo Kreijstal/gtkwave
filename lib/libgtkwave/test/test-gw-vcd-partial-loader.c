@@ -35,8 +35,8 @@ static gboolean feed_data_incrementally(GIOChannel *in_channel, FILE *vcd_file,
 
 static void test_incremental_loading(void)
 {
-    const gchar *shmidcat_path = "/home/kreijstal/git/gtkwave/builddir/src/helpers/shmidcat";
-    const gchar *input_vcd = "/home/kreijstal/git/gtkwave/lib/libgtkwave/test/files/basic.vcd";
+    const gchar *shmidcat_path = "/app/build/src/helpers/shmidcat";
+    const gchar *input_vcd = "/app/lib/libgtkwave/test/files/basic.vcd";
     
     gchar *shm_id_str = NULL;
     gint child_stdin_fd, child_stdout_fd;

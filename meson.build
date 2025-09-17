@@ -70,11 +70,7 @@ if not bzip2_dep.found()
     bzip2_dep = cc.find_library('bz2', has_headers: 'bzlib.h')
 endif
 
-libfst_proj = subproject('libfst')
-libfst_dep = declare_dependency(
-    dependencies: libfst_proj.get_variable('libfst_dep')
-)
-libfst_dll = libfst_proj.get_variable('libfst')
+libfst_dep = dependency('libfst')
 
 # Experimental libpeas based plugin support
 

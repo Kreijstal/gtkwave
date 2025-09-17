@@ -90,22 +90,6 @@ gtkwave_include_directories = [
     'cocoa',
 ]
 
-if host_machine.system() == 'windows'
-    dll_copier = custom_target(
-        'copy-libfst-dll',
-        input: libfst_dll,
-        output: 'libfst-1.dll',
-        command: [
-            'cp',
-            '@INPUT@',
-            '@OUTPUT@',
-        ],
-        build_by_default: true,
-    )
-else
-    dll_copier = []
-endif
-
 executable(
     'gtkwave',
     gtkwave_sources,
@@ -117,7 +101,6 @@ executable(
     link_args: link_args,
     install: true,
     install_rpath: install_rpath,
-    depends: dll_copier,
 )
 
 # twinwave

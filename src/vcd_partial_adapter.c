@@ -37,10 +37,10 @@ static gboolean kick_timeout_callback(gpointer user_data)
         }
     }
 
+
     // Check if new data was processed (time advanced)
     gboolean data_processed = (GLOBALS->tims.last > initial_time);
     
-    // Only print debug messages if new data was processed
     if (data_processed) {
         // Debug: Check dump file time range
         if (GLOBALS->dump_file) {

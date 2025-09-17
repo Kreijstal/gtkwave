@@ -24,7 +24,11 @@
 #include <glib/gstdio.h>
 #include <unistd.h>
 #include <signal.h>
+#if defined(_WIN32) || defined(__MINGW32__)
+#include <windows.h>
+#else
 #include <sys/wait.h>
+#endif
 #include "gw-vcd-partial-loader.h"
 #include "gw-dump-file.h"
 #include "gw-facs.h"
@@ -123,8 +127,12 @@ static void test_slow_stream(void)
     g_object_unref(loader);
     g_free(shm_id_str);
 
+#if defined(_WIN32) || defined(__MINGW32__)
+    WaitForSingleObject(shmidcat_pid, INFINITE);
+#else
     int status;
     waitpid(shmidcat_pid, &status, 0);
+#endif
     g_spawn_close_pid(shmidcat_pid);
 
     g_free(shmidcat_path);

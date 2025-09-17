@@ -37,25 +37,28 @@ static gboolean kick_timeout_callback(gpointer user_data)
         }
     }
 
-    // Debug: Check dump file time range
-    if (GLOBALS->dump_file) {
-        GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
-        if (time_range) {
-            GwTime start = gw_time_range_get_start(time_range);
-            GwTime end = gw_time_range_get_end(time_range);
-            fprintf(stderr, "DEBUG: Dump file time range - start: %ld, end: %ld\n", start, end);
-        }
-    }
-
-    // Debug: Check what the time range update did to global tims
-    fprintf(stderr, "DEBUG: Global tims - last: %ld, first: %ld\n",
-            GLOBALS->tims.last, GLOBALS->tims.first);
-
     // Check if new data was processed (time advanced)
     gboolean data_processed = (GLOBALS->tims.last > initial_time);
-    fprintf(stderr, "DEBUG: Time check - initial: %ld, current: %ld, processed: %d\n",
-            initial_time, GLOBALS->tims.last, data_processed);
+    
+    // Only print debug messages if new data was processed
     if (data_processed) {
+        // Debug: Check dump file time range
+        if (GLOBALS->dump_file) {
+            GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
+            if (time_range) {
+                GwTime start = gw_time_range_get_start(time_range);
+                GwTime end = gw_time_range_get_end(time_range);
+                fprintf(stderr, "DEBUG: Dump file time range - start: %ld, end: %ld\n", start, end);
+            }
+        }
+
+        // Debug: Check what the time range update did to global tims
+        fprintf(stderr, "DEBUG: Global tims - last: %ld, first: %ld\n",
+                GLOBALS->tims.last, GLOBALS->tims.first);
+
+        fprintf(stderr, "DEBUG: Time check - initial: %ld, current: %ld, processed: %d\n",
+                initial_time, GLOBALS->tims.last, data_processed);
+        
         last_processed_time = GLOBALS->tims.last;
         fprintf(stderr, "DEBUG: Kicking partial loader (new data processed)\n");
         
@@ -102,8 +105,6 @@ static gboolean kick_timeout_callback(gpointer user_data)
     }
 
     if (data_processed) {
-        fprintf(stderr, "DEBUG: Kicking partial loader (new data processed)\n");
-        
         // Update the dump file's time range with any newly discovered times.
         gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
 

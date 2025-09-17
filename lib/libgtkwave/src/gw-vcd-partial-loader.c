@@ -111,11 +111,69 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
         return -1;
     }
 
-    // Check if a block is ready in the SHM ring buffer
-    guint8 block_status = get_8(self->shm_data, self->consume_offset);
+    // Scan for the next available block in the ring buffer
+    gssize scan_offset = self->consume_offset;
+    guint8 block_status = get_8(self->shm_data, scan_offset);
     
-    g_printerr("DEBUG: getch_fetch called, block_status: %u, consume_offset: %ld\n",
-               block_status, self->consume_offset);
+    g_printerr("DEBUG: getch_fetch called, scan_offset: %ld, block_status: %u, shm_data: %p\n",
+               scan_offset, block_status, self->shm_data);
+
+    // If current block is consumed (status 0), scan for next available block
+    if (block_status == 0) {
+        g_printerr("DEBUG: Scanning for next available block...\n");
+
+        // Scan for the next available block, but limit the scan to avoid infinite loops
+        gssize current_offset = scan_offset;
+        gssize bytes_scanned = 0;
+        gboolean found_block = FALSE;
+
+        // Scan at most the entire buffer size to prevent infinite loops
+        while (bytes_scanned < RING_BUFFER_SIZE) {
+            // Read the length of the current block
+            guint32 block_length = get_32(self->shm_data, current_offset + 1);
+
+            // If block_length is 0, this might be an invalid block or end of data
+            // Use a minimum skip to avoid infinite loops
+            if (block_length == 0) {
+                // Skip status + 4-byte length
+                current_offset += 5;
+                bytes_scanned += 5;
+            } else {
+                // Move to the next block
+                current_offset += 1 + 4 + block_length;
+                bytes_scanned += 1 + 4 + block_length;
+            }
+
+            // Handle ring buffer wrap-around
+            if (current_offset >= RING_BUFFER_SIZE) {
+                current_offset %= RING_BUFFER_SIZE;
+            }
+
+            // Check the status of the next block
+            block_status = get_8(self->shm_data, current_offset);
+
+            if (block_status != 0) {
+                found_block = TRUE;
+                break;
+            }
+
+            // If we've wrapped around to the starting point, stop scanning
+            if (current_offset == scan_offset) {
+                g_printerr("DEBUG: Wrapped around to starting offset, no available blocks\n");
+                break;
+            }
+        }
+
+        if (found_block) {
+            // Found an available block, update consume_offset
+            self->consume_offset = current_offset;
+            g_printerr("DEBUG: Found available block at offset %ld\n", self->consume_offset);
+        } else {
+            g_printerr("DEBUG: No available blocks found after scanning %ld bytes\n", bytes_scanned);
+            loader->vend = (loader->vst = loader->vcdbuf) + 0;
+            return -1;
+        }
+    }
     
     if (block_status != 0) {
         rd = get_32(self->shm_data, self->consume_offset + 1);
@@ -301,9 +359,9 @@ void gw_vcd_partial_loader_update_time_range(GwVcdPartialLoader *self, GwDumpFil
     
     GwVcdLoader *loader = GW_VCD_LOADER(self);
     
-    // Debug: Print loader time values
-    g_printerr("DEBUG: Loader times - start: %ld, end: %ld, current: %ld\n",
-               loader->start_time, loader->end_time, loader->current_time);
+    // Debug: Print loader time values and consume offset
+    g_printerr("DEBUG: Loader times - start: %ld, end: %ld, current: %ld, consume_offset: %ld\n",
+               loader->start_time, loader->end_time, loader->current_time, self->consume_offset);
     
     // Only update if we have valid time data
     if (loader->start_time >= 0 && loader->end_time >= loader->start_time) {

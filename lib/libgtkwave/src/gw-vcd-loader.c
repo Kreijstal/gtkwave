@@ -1699,7 +1699,13 @@ static void vcd_parse_string(GwVcdLoader *self)
         GwTime tim;
         GwTime *tt;
 
+        // Debug: print the time string being parsed
+        g_printerr("DEBUG: Parsing time string: '%s'\n", self->yytext);
+
         tim = atoi_64(self->yytext + 1);
+
+        // Debug: print the parsed time value
+        g_printerr("DEBUG: Parsed time value: %ld\n", tim);
 
         if (self->start_time < 0) {
             self->start_time = tim;
@@ -1801,11 +1807,6 @@ void vcd_parse(GwVcdLoader *self, GError **error)
                     // Otherwise, continue parsing time/value data
                 }
                 break;
-                
-            case T_TIME:
-                // Debug: print time value being parsed
-                g_printerr("DEBUG: Parsing time value: %s\n", self->yytext);
-                // Fall through to default handling
 
             case T_STRING:
                 vcd_parse_string(self);

@@ -30,6 +30,13 @@ static gboolean kick_timeout_callback(gpointer user_data)
     // Update time range which will set the new end time
     gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
 
+    if (GLOBALS->dump_file) {
+        GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
+        if (time_range) {
+            GLOBALS->tims.last = gw_time_range_get_end(time_range);
+        }
+    }
+
     // Debug: Check dump file time range
     if (GLOBALS->dump_file) {
         GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);

@@ -1,5 +1,6 @@
 #include <config.h>
 #include <gtk/gtk.h>
+#include <stdlib.h>
 #include "cairo.h"
 #include "gw-wave-view.h"
 #include "gw-wave-view-private.h"
@@ -137,46 +138,58 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
 {
     GwTrace *t = gw_signal_list_get_trace(GW_SIGNAL_LIST(GLOBALS->signalarea), 0);
     if (t) {
-        DEBUG(
-            /* Debug: Print signal summary */
-            static int debug_printed = 0;
-            if (!debug_printed) {
-                debug_printed = 1;
-                GwTrace *debug_t = t;
-                int debug_count = 0;
-                
-                printf("=== SIGNAL WAVEFORM SUMMARY ===\n");
+        /* Signal summary output - always available */
+        static int debug_printed = 0;
+        if (!debug_printed) {
+            debug_printed = 1;
+            GwTrace *debug_t = t;
+            int debug_count = 0;
+            
+            /* Check for verbose mode environment variable */
+            const char *verbose_env = getenv("GTKWAVE_SIGNAL_VERBOSE");
+            int verbose_mode = verbose_env ? atoi(verbose_env) : 0;
+            
+            printf("=== SIGNAL WAVEFORM SUMMARY ===\n");
+            if (verbose_mode > 0) {
                 printf("Color mapping: 0=0, 1=x, 2=z, 3=1, 4=H, 5=U, 6=W, 7=L, 8-15=-\n");
                 printf("Drawing colors: 0=black, 1=red(x), 2=blue(z), 3=green(1), 4-7=other states\n");
                 printf("Signal states: 0=0, 1=x, 2=z, 3=1, 4=H, 5=U, 6=W, 7=L, 8-=dash\n");
-                
-                while (debug_t && debug_count < 10) { /* Limit to first 10 signals for summary */
-                    if (!(debug_t->flags & (TR_EXCLUDE | TR_BLANK | TR_ANALOG_BLANK_STRETCH))) {
-                        printf("Signal: %s\n", debug_t->name ? debug_t->name : "(unnamed)");
-                        printf("  Type: %s\n", debug_t->vector ? "Vector" : "Digital");
-                        
-                        if (!debug_t->vector) {
-                            GwHistEnt *first_he = debug_t->n.nd->head.next;
-                            GwHistEnt *last_he = first_he;
-                            while (last_he && last_he->next) {
-                                last_he = last_he->next;
-                            }
-                            
-                            if (first_he) {
-                                const char *value_str = "0xz11xz0xxxxxxxx"; /* AN_STR4ST equivalent */
-                                char first_val = value_str[first_he->v.h_val & 0xF];
-                                char last_val = last_he ? value_str[last_he->v.h_val & 0xF] : first_val;
-                                
-                                printf("  First value: %c (0x%X) at time %" GW_TIME_FORMAT "\n", first_val, first_he->v.h_val, first_he->time);
-                                printf("  Last value:  %c (0x%X) at time %" GW_TIME_FORMAT "\n", last_val, last_he ? last_he->v.h_val : first_he->v.h_val, last_he ? last_he->time : first_he->time);
-                            }
-                        } else {
-                            printf("  Vector signal - multiple bits\n");
-                            if (debug_t->n.vec && debug_t->n.vec->bvname) {
-                                printf("  Vector name: %s\n", debug_t->n.vec->bvname);
-                            }
+                printf("Set GTKWAVE_SIGNAL_VERBOSE=2 for detailed output\n");
+            }
+            
+            while (debug_t && debug_count < (verbose_mode > 1 ? 50 : 10)) { /* Limit signals based on verbosity */
+                if (!(debug_t->flags & (TR_EXCLUDE | TR_BLANK | TR_ANALOG_BLANK_STRETCH))) {
+                    printf("Signal: %s\n", debug_t->name ? debug_t->name : "(unnamed)");
+                    printf("  Type: %s\n", debug_t->vector ? "Vector" : "Digital");
+                    
+                    if (!debug_t->vector) {
+                        GwHistEnt *first_he = debug_t->n.nd->head.next;
+                        GwHistEnt *last_he = first_he;
+                        while (last_he && last_he->next) {
+                            last_he = last_he->next;
                         }
                         
+                        if (first_he) {
+                            const char *value_str = "0xz11xz0xxxxxxxx"; /* AN_STR4ST equivalent */
+                            char first_val = value_str[first_he->v.h_val & 0xF];
+                            char last_val = last_he ? value_str[last_he->v.h_val & 0xF] : first_val;
+                            
+                            printf("  First value: %c at time %" GW_TIME_FORMAT "\n", first_val, first_he->time);
+                            printf("  Last value:  %c at time %" GW_TIME_FORMAT "\n", last_val, last_he ? last_he->time : first_he->time);
+                            
+                            if (verbose_mode > 0) {
+                                printf("  First value hex: 0x%X\n", first_he->v.h_val);
+                                printf("  Last value hex:  0x%X\n", last_he ? last_he->v.h_val : first_he->v.h_val);
+                            }
+                        }
+                    } else {
+                        printf("  Vector signal - multiple bits\n");
+                        if (debug_t->n.vec && debug_t->n.vec->bvname) {
+                            printf("  Vector name: %s\n", debug_t->n.vec->bvname);
+                        }
+                    }
+                    
+                    if (verbose_mode > 0) {
                         printf("  Color index: %u\n", debug_t->t_color);
                         printf("  Flags: 0x%016" PRIx64 "\n", debug_t->flags);
                         if (debug_t->vector && debug_t->n.vec) {
@@ -193,14 +206,17 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
                         } else {
                             printf("  Drawing mode: Default color theme\n");
                         }
-                        printf("  ---\n");
                     }
-                    debug_t = GiveNextTrace(debug_t);
-                    debug_count++;
+                    printf("  ---\n");
                 }
-                printf("===============================\n");
+                debug_t = GiveNextTrace(debug_t);
+                debug_count++;
             }
-        )
+            printf("===============================\n");
+            if (verbose_mode == 0) {
+                printf("Set GTKWAVE_SIGNAL_VERBOSE=1 for detailed output\n");
+            }
+        }
         
         GwTrace *tback = t;
         GwHistEnt *h;

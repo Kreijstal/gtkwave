@@ -455,3 +455,42 @@ static void gw_vcd_file_import_trace(GwVcdFile *self, GwNode *np)
 
     g_clear_object(&reader);
 }
+
+// Direct history appending function for interactive VCD loading
+void gw_vcd_file_add_histent_to_node(GwVcdFile *self, GwNode *n, GwTime tim, GwBit bit)
+{
+    g_return_if_fail(GW_IS_VCD_FILE(self));
+    g_return_if_fail(n != NULL);
+
+    if (!n->curr) {
+        // If the list is empty, create the initial 'x' entry
+        GwHistEnt *he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
+        he->time = -1;
+        he->v.h_val = GW_BIT_X;
+
+        n->curr = he;
+        n->head.next = he;
+    }
+
+    // Check for glitches or duplicate values
+    if (n->curr->time == tim) {
+        n->curr->v.h_val = bit; // Overwrite for glitch
+        if (!(n->curr->flags & GW_HIST_ENT_FLAG_GLITCH)) {
+            n->curr->flags |= GW_HIST_ENT_FLAG_GLITCH; // set the glitch flag
+        }
+    } else if (n->curr->v.h_val != bit) {
+        // Append a new entry
+        GwHistEnt *he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
+        he->time = tim;
+        he->v.h_val = bit;
+
+        n->curr->next = he;
+        n->curr = he; // Advance the tail pointer
+
+        // Invalidate the harray since the linked list has changed
+        if (n->harray) {
+            free(n->harray);
+            n->harray = NULL;
+        }
+    }
+}

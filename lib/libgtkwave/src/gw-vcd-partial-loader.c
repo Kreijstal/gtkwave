@@ -14,13 +14,14 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * THE AAVTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
 
 #include "gw-vcd-partial-loader.h"
+#include "gw-vcd-partial-loader-private.h" // For accessing internal structure
 #include "gw-vcd-loader-private.h" // We need access to the parent's guts
 #include "gw-vcd-file.h"
 #include "gw-vcd-file-private.h" // For accessing internal GwVcdFile members
@@ -31,6 +32,10 @@
 #include "gw-time-range.h"
 #include <errno.h>
 #include <gio/gio.h>
+#include <glib/gstdio.h>
+#include <string.h>
+#include "gw-time.h"
+#include "gw-bit.h"
 
 // Forward declaration of GwTimeRange internal structure for direct access
 typedef struct _GwTimeRangeInternal {
@@ -39,20 +44,14 @@ typedef struct _GwTimeRangeInternal {
     GwTime end;
 } GwTimeRangeInternal;
 
+// Forward declarations for VCD loader internal functions
+struct vcdsymbol;
+
+
+
 #define RING_BUFFER_SIZE (1024 * 1024)
 
-struct _GwVcdPartialLoader
-{
-    GwVcdLoader parent_instance;
 
-    // SHM state
-    GwSharedMemory *shm;
-    guint8 *shm_data;
-    gssize consume_offset;
-    
-    // Track whether we've already parsed the header
-    gboolean header_parsed;
-};
 
 G_DEFINE_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW_TYPE_VCD_LOADER)
 
@@ -86,6 +85,7 @@ static void gw_vcd_partial_loader_finalize(GObject *object)
 {
     GwVcdPartialLoader *self = GW_VCD_PARTIAL_LOADER(object);
     gw_vcd_partial_loader_cleanup(self);
+    
     G_OBJECT_CLASS(gw_vcd_partial_loader_parent_class)->finalize(object);
 }
 
@@ -154,6 +154,8 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
     return (int)(*loader->vst);
 }
 
+
+
 void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 {
     g_return_if_fail(GW_IS_VCD_PARTIAL_LOADER(self));
@@ -195,7 +197,6 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
     loader->getch_fetch_override = NULL; // Unhook until next kick
     loader->getch_fetch_override_data = NULL;
     
-
 }
 
 void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self)
@@ -207,6 +208,8 @@ void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self)
         self->shm_data = NULL;
     }
     self->consume_offset = 0;
+    self->header_parsed = FALSE;
+    self->current_time = 0;
     
     // Clean up the parent's buffer
     getch_free(GW_VCD_LOADER(self));
@@ -330,3 +333,5 @@ void gw_vcd_partial_loader_update_time_range(GwVcdPartialLoader *self, GwDumpFil
         }
     }
 }
+
+

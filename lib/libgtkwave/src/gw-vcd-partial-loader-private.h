@@ -23,6 +23,7 @@
 #pragma once
 
 #include "gw-vcd-partial-loader.h"
+#include "gw-vcd-loader-private.h" // For complete GwVcdLoader definition
 #include "gw-shared-memory.h"
 
 G_BEGIN_DECLS
@@ -36,9 +37,14 @@ struct _GwVcdPartialLoader
     GwSharedMemory *shm;
     guint8 *shm_data;
     gssize consume_offset;
+    
+    // State for direct parsing
+    GString *line_buffer;
+    GwTime current_time;
+    gboolean header_parsed;
 };
 
 // Forward declaration of the getch function
-int vcd_partial_getch_fetch(GwVcdLoader *loader);
+static int vcd_partial_getch_fetch(GwVcdLoader *loader);
 
 G_END_DECLS

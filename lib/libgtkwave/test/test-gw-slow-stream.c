@@ -54,7 +54,7 @@ static const gchar *vcd_data[] = {
 
 static void test_slow_stream(void)
 {
-    g_printerr("--- test_slow_stream: starting ---\n");
+
     const gchar *build_dir = g_getenv("MESON_BUILD_ROOT");
     gchar *shmidcat_path = g_build_filename(build_dir, "src", "helpers", "shmidcat", NULL);
 
@@ -103,7 +103,7 @@ static void test_slow_stream(void)
 
     // Feed data line by line
     for (int i = 6; vcd_data[i] != NULL; i++) {
-        g_printerr("--- test_slow_stream: loop iteration %d ---\n", i);
+
         g_io_channel_write_chars(in_channel, vcd_data[i], -1, NULL, NULL);
         g_io_channel_flush(in_channel, NULL);
         g_usleep(100000);
@@ -136,7 +136,7 @@ static void test_slow_stream(void)
     g_spawn_close_pid(shmidcat_pid);
 
     g_free(shmidcat_path);
-    g_printerr("--- test_slow_stream: finished ---\n");
+
 }
 
 int main(int argc, char **argv)

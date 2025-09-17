@@ -1204,9 +1204,13 @@ do_primary_inits:
         if (fgets(id_buf, sizeof(id_buf), stdin)) {
             id_buf[strcspn(id_buf, "\r\n")] = 0; // Trim newline
             fprintf(stderr, "DEBUG: Got SHM ID: %s\n", id_buf);
+            fprintf(stderr, "DEBUG: Before free_2, loaded_file_name=%p\n", GLOBALS->loaded_file_name);
             if (GLOBALS->loaded_file_name) free_2(GLOBALS->loaded_file_name);
+            fprintf(stderr, "DEBUG: Before malloc_2, id_buf length=%zu\n", strlen(id_buf));
             GLOBALS->loaded_file_name = malloc_2(strlen(id_buf) + 1);
+            fprintf(stderr, "DEBUG: After malloc_2, loaded_file_name=%p\n", GLOBALS->loaded_file_name);
             strcpy(GLOBALS->loaded_file_name, id_buf);
+            fprintf(stderr, "DEBUG: loaded_file_name='%s' (length %zu)\n", GLOBALS->loaded_file_name, strlen(GLOBALS->loaded_file_name));
         } else {
             fprintf(stderr, "Error: Interactive mode (-I -v) requires the SHM ID to be provided on stdin.\n");
             exit(1);
@@ -1369,6 +1373,8 @@ do_primary_inits:
 
     /* load either the vcd or aet file depending on suffix then mode setting */
     if (is_vcd) {
+        fprintf(stderr, "DEBUG: winstd='%s' (%zu), loaded_file_name='%s' (%zu)\n", 
+                winstd, strlen(winstd), GLOBALS->loaded_file_name, strlen(GLOBALS->loaded_file_name));
         GLOBALS->winname = malloc_2(strlen(winstd) + 4 + 1);
         strcpy(GLOBALS->winname, winstd);
     } else {

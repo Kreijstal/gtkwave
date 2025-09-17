@@ -51,6 +51,17 @@ int main(void)
     gssize consume_offset = 0;
     int timeout_counter = 0;
 
+    // Ring buffer access function
+    guint8 get_8(guint8 *base, gssize offset)
+    {
+        return base[offset % RING_BUFFER_SIZE];
+    }
+
+    void put_8(guint8 *base, gssize offset, guint8 value)
+    {
+        base[offset % RING_BUFFER_SIZE] = value;
+    }
+
     if (!fgets(shm_id_str, sizeof(shm_id_str), stdin)) {
         fprintf(stderr, "Consumer Error: Failed to read SHM ID from stdin.\n");
         return 1;
@@ -73,8 +84,19 @@ int main(void)
             }
             fflush(stdout);
 
-            shm_data[consume_offset % RING_BUFFER_SIZE] = 0;
+            put_8(shm_data, consume_offset, 0);
             consume_offset += (5 + len);
+            
+            // Handle ring buffer wrap-around
+            if (consume_offset >= RING_BUFFER_SIZE) {
+                consume_offset %= RING_BUFFER_SIZE;
+            }
+            
+            // Ensure consume_offset never becomes negative
+            if (consume_offset < 0) {
+                consume_offset += RING_BUFFER_SIZE;
+            }
+            
             timeout_counter = 0; // Reset timeout on activity
         } else {
             usleep(SLEEP_INTERVAL_US);

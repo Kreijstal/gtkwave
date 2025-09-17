@@ -27,6 +27,9 @@
 #include "gw-vcd-file-private.h" // For accessing internal GwVcdFile members
 #include "gw-vcd-loader.h" // For accessing the loader structure
 
+// VCD buffer size from gw-vcd-loader.h
+#define VCD_BSIZ 32768
+
 #include "gw-facs.h"
 #include "gw-tree.h"
 #include "gw-time-range.h"
@@ -69,6 +72,11 @@ static guint32 get_32(guint8 *base, gssize offset)
     val |= (get_8(base, offset + 2) << 8);
     val |= (get_8(base, offset + 3));
     return val;
+}
+
+static void put_8(guint8 *base, gssize offset, guint8 value)
+{
+    base[offset % RING_BUFFER_SIZE] = value;
 }
 
 static int vcd_partial_getch_fetch(GwVcdLoader *loader);
@@ -121,20 +129,31 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
         if (rd > 0) {
             data_processed = TRUE;
             
-            // Copy data from SHM into the VCD loader's internal buffer
-            for (size_t i = 0; i < rd; i++) {
+            // Copy data from SHM into the VCD loader's internal buffer with bounds checking
+            size_t copy_size = rd;
+            if (copy_size > VCD_BSIZ - 1) {
+                copy_size = VCD_BSIZ - 1;
+                g_printerr("WARNING: Truncating VCD data from %zu to %zu bytes\n", rd, copy_size);
+            }
+            
+            for (size_t i = 0; i < copy_size; i++) {
                 guint8 byte = get_8(self->shm_data, self->consume_offset + 5 + i);
                 loader->vcdbuf[i] = byte;
             }
-            loader->vcdbuf[rd] = 0;
+            loader->vcdbuf[copy_size] = 0;
 
             // Mark block as consumed
-            self->shm_data[self->consume_offset % RING_BUFFER_SIZE] = 0;
+            put_8(self->shm_data, self->consume_offset, 0);
             self->consume_offset += (5 + rd);
             
             // Handle ring buffer wrap-around
             if (self->consume_offset >= RING_BUFFER_SIZE) {
                 self->consume_offset %= RING_BUFFER_SIZE;
+            }
+            
+            // Ensure consume_offset never becomes negative
+            if (self->consume_offset < 0) {
+                self->consume_offset += RING_BUFFER_SIZE;
             }
             
             g_printerr("DEBUG: Block ready, rd: %zu\n", rd);
@@ -209,7 +228,7 @@ void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self)
     }
     self->consume_offset = 0;
     self->header_parsed = FALSE;
-    self->current_time = 0;
+    GW_VCD_LOADER(self)->current_time = 0;
     
     // Clean up the parent's buffer
     getch_free(GW_VCD_LOADER(self));

@@ -193,7 +193,7 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
                         printf("  Color index: %u\n", debug_t->t_color);
                         printf("  Flags: 0x%016" PRIx64 "\n", debug_t->flags);
                         if (debug_t->vector && debug_t->n.vec) {
-                            printf("  Vector width: %d bits\n", debug_t->n.vec->len);
+                            printf("  Vector width: %d bits\n", debug_t->n.vec->nbits);
                         }
                         
                         /* Show actual drawing colors */

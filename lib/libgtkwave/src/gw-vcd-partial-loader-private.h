@@ -40,7 +40,6 @@ struct _GwVcdPartialLoader
     
     // State for direct parsing
     GString *line_buffer;
-    GwTime current_time;
     gboolean header_parsed;
 };
 

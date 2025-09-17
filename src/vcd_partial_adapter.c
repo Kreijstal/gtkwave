@@ -6,31 +6,53 @@
 #include "wavewindow.h" // For fix_wavehadj()
 #include "menu.h"       // For redraw_signals_and_waves()
 #include <stdio.h>
+#include <glib.h>
 
 // A static pointer to hold our single loader instance for the current tab.
 static GwVcdPartialLoader *the_loader = NULL;
 static guint the_timer_id = 0;
 static GwTime last_processed_time = 0;
+static GMutex loader_mutex;
 
 // The timer callback that drives live updates.
 static gboolean kick_timeout_callback(gpointer user_data)
 {
+    // Lock the mutex to prevent race conditions with cleanup
+    g_mutex_lock(&loader_mutex);
+    
     // If the loader was cleaned up, stop the timer.
     if (!the_loader) {
+        g_mutex_unlock(&loader_mutex);
         the_timer_id = 0;
         return G_SOURCE_REMOVE; // Returning FALSE stops the timer
+    }
+
+    // Additional safety check - if globals are not initialized, bail out
+    if (!GLOBALS) {
+        g_mutex_unlock(&loader_mutex);
+        return G_SOURCE_REMOVE;
     }
 
     // Store initial time to detect if new data is processed
     GwTime initial_time = GLOBALS->tims.last;
 
     // "Kick" the loader to process any new data in the shared memory buffer.
+    // Check again if the_loader is still valid after the mutex was unlocked
+    if (!the_loader || !GLOBALS) {
+        g_mutex_unlock(&loader_mutex);
+        return G_SOURCE_REMOVE;
+    }
     gw_vcd_partial_loader_kick(the_loader);
 
     // Update time range which will set the new end time
+    // Check again if the_loader is still valid
+    if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
+        g_mutex_unlock(&loader_mutex);
+        return G_SOURCE_REMOVE;
+    }
     gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
 
-    if (GLOBALS->dump_file) {
+    if (GLOBALS && GLOBALS->dump_file) {
         GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
         if (time_range) {
             GLOBALS->tims.last = gw_time_range_get_end(time_range);
@@ -39,11 +61,17 @@ static gboolean kick_timeout_callback(gpointer user_data)
 
 
     // Check if new data was processed (time advanced)
-    gboolean data_processed = (GLOBALS->tims.last > initial_time);
+    gboolean data_processed = (GLOBALS && (GLOBALS->tims.last > initial_time));
     
     if (data_processed) {
+        // Check again if the_loader is still valid before accessing it
+        if (!the_loader || !GLOBALS) {
+            g_mutex_unlock(&loader_mutex);
+            return G_SOURCE_REMOVE;
+        }
+        
         // Debug: Check dump file time range
-        if (GLOBALS->dump_file) {
+        if (GLOBALS && GLOBALS->dump_file) {
             GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
             if (time_range) {
                 GwTime start = gw_time_range_get_start(time_range);
@@ -53,20 +81,30 @@ static gboolean kick_timeout_callback(gpointer user_data)
         }
 
         // Debug: Check what the time range update did to global tims
-        fprintf(stderr, "DEBUG: Global tims - last: %ld, first: %ld\n",
-                GLOBALS->tims.last, GLOBALS->tims.first);
+        if (GLOBALS) {
+            fprintf(stderr, "DEBUG: Global tims - last: %ld, first: %ld\n",
+                    GLOBALS->tims.last, GLOBALS->tims.first);
 
-        fprintf(stderr, "DEBUG: Time check - initial: %ld, current: %ld, processed: %d\n",
-                initial_time, GLOBALS->tims.last, data_processed);
+            fprintf(stderr, "DEBUG: Time check - initial: %ld, current: %ld, processed: %d\n",
+                    initial_time, GLOBALS->tims.last, data_processed);
+        }
         
-        last_processed_time = GLOBALS->tims.last;
+        if (GLOBALS) {
+            last_processed_time = GLOBALS->tims.last;
+        }
         fprintf(stderr, "DEBUG: Kicking partial loader (new data processed)\n");
+        
+        // Check again if the_loader is still valid before accessing it
+        if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
+            g_mutex_unlock(&loader_mutex);
+            return G_SOURCE_REMOVE;
+        }
         
         // Update the dump file's time range with any newly discovered times.
         gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
 
         // Import traces to convert vlists to proper history entries
-        if (GLOBALS && GLOBALS->dump_file && GLOBALS->traces.first) {
+        if (GLOBALS && GLOBALS->dump_file && GLOBALS->traces.first && GLOBALS->traces.total > 0) {
             // Build a list of nodes that need importing
             GwNode **nodes = malloc_2((GLOBALS->traces.total + 1) * sizeof(GwNode *));
             int i = 0;
@@ -95,7 +133,7 @@ static gboolean kick_timeout_callback(gpointer user_data)
         if (GLOBALS && GLOBALS->traces.first) {
             GwTrace *t = GLOBALS->traces.first;
             while (t) {
-                if (!t->vector && HasWave(t) && t->n.nd) {
+                if (!t->vector && HasWave(t) && t->n.nd && t->n.nd->harray) {
                     // Free the old harray if it exists
                     if (t->n.nd->harray) {
                         free_2(t->n.nd->harray);
@@ -205,12 +243,13 @@ static gboolean kick_timeout_callback(gpointer user_data)
         // Update the UI to reflect the new data, but only if GUI is initialized
         if (GLOBALS && GLOBALS->mainwindow) {
             //fprintf(stderr, "DEBUG: Updating UI\n");
-            fix_wavehadj(); // Recalculate horizontal scrollbar range
-            update_time_box();
-            redraw_signals_and_waves();
+            if (fix_wavehadj) fix_wavehadj(); // Recalculate horizontal scrollbar range
+            if (update_time_box) update_time_box();
+            if (redraw_signals_and_waves) redraw_signals_and_waves();
         }
     }
 
+    g_mutex_unlock(&loader_mutex);
     return G_SOURCE_CONTINUE; // Returning TRUE keeps the timer running
 }
 
@@ -218,6 +257,9 @@ GwDumpFile *vcd_partial_main(const gchar *shm_id)
 {
     fprintf(stderr, "DEBUG: Starting interactive VCD session with SHM ID: %s\n", shm_id);
     fprintf(stderr, "DEBUG: Before cleanup - the_loader: %p, the_timer_id: %u\n", the_loader, the_timer_id);
+    
+    // Lock the mutex during cleanup and initialization
+    g_mutex_lock(&loader_mutex);
     vcd_partial_cleanup(); // Clean up any previous instance
     fprintf(stderr, "DEBUG: After cleanup - the_loader: %p, the_timer_id: %u\n", the_loader, the_timer_id);
     
@@ -258,11 +300,14 @@ GwDumpFile *vcd_partial_main(const gchar *shm_id)
     the_timer_id = g_timeout_add(500, kick_timeout_callback, NULL);
 
     fprintf(stderr, "DEBUG: Interactive VCD session started successfully, returning dump_file: %p\n", dump_file);
+    g_mutex_unlock(&loader_mutex);
     return dump_file;
 }
 
 void vcd_partial_cleanup(void)
 {
+    // Lock the mutex during cleanup to prevent race conditions
+    g_mutex_lock(&loader_mutex);
     fprintf(stderr, "DEBUG: Cleaning up partial loader - the_loader: %p, the_timer_id: %u\n", the_loader, the_timer_id);
     if (the_timer_id > 0) {
         fprintf(stderr, "DEBUG: Removing timer ID: %u\n", the_timer_id);
@@ -277,4 +322,5 @@ void vcd_partial_cleanup(void)
         the_loader = NULL;
     }
     fprintf(stderr, "DEBUG: Partial loader cleanup complete\n");
+    g_mutex_unlock(&loader_mutex);
 }

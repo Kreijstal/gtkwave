@@ -182,6 +182,9 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
                 GLOBALS->shift_timebase = t->shift;
                 if (!t->vector) {
                     h = bsearch_node(t->n.nd, GLOBALS->tims.start - t->shift);
+                    if (!h) {
+                        continue; /* Skip this trace if no history entries found */
+                    }
                     DEBUG(printf("Start time: %" GW_TIME_FORMAT ", Histent time: %" GW_TIME_FORMAT
                                  "\n",
                                  GLOBALS->tims.start,
@@ -603,6 +606,9 @@ static void draw_hptr_trace(GwWaveView *self,
                 newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                           GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
                 h3 = bsearch_node(t->n.nd, newtime);
+                if (!h3) {
+                    break; /* Skip if no history entries found */
+                }
                 if (h3->time > h->time) {
                     h = h3;
                     continue;
@@ -1048,6 +1054,9 @@ static void draw_hptr_trace_vector_analog(GwWaveView *self,
             newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                       GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
             h3 = bsearch_node(t->n.nd, newtime);
+            if (!h3) {
+                break; /* Skip if no history entries found */
+            }
             if (h3->time > h->time) {
                 h = h3;
                 /* lasttype=type; */ /* scan-build */
@@ -1406,6 +1415,9 @@ static void draw_hptr_trace_vector(GwWaveView *self,
             newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                       GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
             h3 = bsearch_node(t->n.nd, newtime);
+            if (!h3) {
+                break; /* Skip if no history entries found */
+            }
             if (h3->time > h->time) {
                 h = h3;
                 continue;

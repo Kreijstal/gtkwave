@@ -15,6 +15,8 @@
 #include "bsearch.h"
 #include "strace.h"
 #include <ctype.h>
+#include <stdio.h>
+#include <assert.h>
 
 static int compar_timechain(const void *s1, const void *s2)
 {
@@ -99,6 +101,24 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
     GLOBALS->max_compare_time_bsearch_c_1 = -2;
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
+
+    /* Hard error checks - these should never happen in valid operation */
+    if (n == NULL) {
+        fprintf(stderr, "FATAL: bsearch_node called with NULL node\n");
+        abort();
+    }
+    if (n->harray == NULL) {
+        fprintf(stderr, "FATAL: bsearch_node called with NULL harray for node\n");
+        abort();
+    }
+    if (n->numhist <= 0) {
+        fprintf(stderr, "FATAL: bsearch_node called with numhist=%d for node\n", n->numhist);
+        abort();
+    }
+    if (n->numhist < 2) {
+        fprintf(stderr, "FATAL: bsearch_node requires at least 2 history entries, got %d\n", n->numhist);
+        abort();
+    }
 
     if (bsearch(&key, n->harray, n->numhist, sizeof(GwHistEnt *), compar_histent)) {
         /* nothing, all side effects are in bsearch */

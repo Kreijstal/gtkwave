@@ -158,6 +158,7 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
     if (!self->shm_data) return;
 
     GwVcdLoader *loader = GW_VCD_LOADER(self);
+    loader->vst = loader->vend = loader->vcdbuf;
     
     // Store self as user data for the callback
     loader->getch_fetch_override_data = self;

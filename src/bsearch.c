@@ -116,8 +116,7 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
         abort();
     }
     if (n->numhist < 2) {
-        fprintf(stderr, "FATAL: bsearch_node requires at least 2 history entries, got %d\n", n->numhist);
-        abort();
+	return NULL;
     }
 
     if (bsearch(&key, n->harray, n->numhist, sizeof(GwHistEnt *), compar_histent)) {

@@ -160,42 +160,28 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
     if (!self->shm_data) return;
 
     GwVcdLoader *loader = GW_VCD_LOADER(self);
-    loader->vst = loader->vend = loader->vcdbuf;
-    
-    // Store self as user data for the callback
+    GError *error = NULL;
+
+    /* Set up the getch override to read from our ring buffer */
     loader->getch_fetch_override_data = self;
     loader->getch_fetch_override = vcd_partial_getch_fetch;
-    loader->vcdbyteno = 0; // Reset byte counter for each kick
-    
-    // Actively call the parent's parser. It will use our override.
-    GError *error = NULL;
-    
-    // Store initial time to detect if new data is processed
-    GwTime initial_time = loader->current_time;
-    
+    loader->vcdbyteno = 0;
+
+    /*
+     * Call the main parser. It will use our getch override to fetch
+     * new data from the SHM buffer and append it to the vlists for
+     * each corresponding symbol.
+     */
     vcd_parse(loader, &error);
 
-    // Check if new data was processed (time advanced)
-    gboolean data_processed = (loader->current_time > initial_time);
-    
-    // Only print debug messages if new data was processed
-    if (data_processed) {
-        g_printerr("DEBUG: Before parse - start: %ld, end: %ld, current: %ld\n",
-                   loader->start_time, loader->end_time, initial_time);
-        g_printerr("DEBUG: After parse - start: %ld, end: %ld, current: %ld\n",
-                   loader->start_time, loader->end_time, loader->current_time);
-
-        // After parsing, update the loader's time range
-        if (loader->current_time > loader->end_time) {
-            loader->end_time = loader->current_time;
-            g_printerr("DEBUG: Updated end_time to: %ld\n", loader->end_time);
-        }
-    }
-
-    loader->getch_fetch_override = NULL; // Unhook until next kick
+    /* Unhook the override until the next kick */
+    loader->getch_fetch_override = NULL;
     loader->getch_fetch_override_data = NULL;
-    
 
+    /* Update the loader's overall time range if it has changed */
+    if (loader->current_time > loader->end_time) {
+        loader->end_time = loader->current_time;
+    }
 }
 
 void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self)

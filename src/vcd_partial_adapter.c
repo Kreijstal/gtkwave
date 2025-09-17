@@ -1,6 +1,7 @@
 #include "vcd_partial_adapter.h"
 #include "globals.h"
 #include "gw-vcd-partial-loader.h"
+#include "gw-vcd-loader.h"
 #include "gw-time-range.h"
 #include "wavewindow.h" // For fix_wavehadj()
 #include "menu.h"       // For redraw_signals_and_waves()
@@ -9,6 +10,7 @@
 // A static pointer to hold our single loader instance for the current tab.
 static GwVcdPartialLoader *the_loader = NULL;
 static guint the_timer_id = 0;
+static GwTime last_processed_time = 0;
 
 // The timer callback that drives live updates.
 static gboolean kick_timeout_callback(gpointer user_data)
@@ -19,49 +21,122 @@ static gboolean kick_timeout_callback(gpointer user_data)
         return G_SOURCE_REMOVE; // Returning FALSE stops the timer
     }
 
+    // Store initial time to detect if new data is processed
+    GwTime initial_time = GLOBALS->tims.last;
+
     // "Kick" the loader to process any new data in the shared memory buffer.
-    fprintf(stderr, "DEBUG: Kicking partial loader\n");
     gw_vcd_partial_loader_kick(the_loader);
 
-    // Update the dump file's time range with any newly discovered times.
+    // Update time range which will set the new end time
     gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
 
-    // Simple harray rebuilding for interactive mode
-    if (GLOBALS && GLOBALS->traces.first) {
-        GwTrace *t = GLOBALS->traces.first;
-        while (t) {
-            if (!t->vector && t->n.nd && !t->n.nd->harray) {
-                // Build simple harray for this node
-                GwHistEnt *histpnt = &(t->n.nd->head);
-                int histcount = 0;
-                
-                while (histpnt) {
-                    histcount++;
-                    histpnt = histpnt->next;
-                }
-                
-                t->n.nd->numhist = histcount;
-                if (histcount > 0) {
-                    t->n.nd->harray = malloc_2(histcount * sizeof(GwHistEnt *));
-                    histpnt = &(t->n.nd->head);
-                    histcount = 0;
-                    
-                    while (histpnt) {
-                        t->n.nd->harray[histcount++] = histpnt;
-                        histpnt = histpnt->next;
-                    }
-                }
-            }
-            t = t->t_next;
+    // Debug: Check dump file time range
+    if (GLOBALS->dump_file) {
+        GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
+        if (time_range) {
+            GwTime start = gw_time_range_get_start(time_range);
+            GwTime end = gw_time_range_get_end(time_range);
+            fprintf(stderr, "DEBUG: Dump file time range - start: %ld, end: %ld\n", start, end);
         }
     }
 
-    // Update the UI to reflect the new data, but only if GUI is initialized
-    if (GLOBALS && GLOBALS->mainwindow) {
-        fprintf(stderr, "DEBUG: Updating UI\n");
-        fix_wavehadj(); // Recalculate horizontal scrollbar range
-        update_time_box();
-        redraw_signals_and_waves();
+    // Debug: Check what the time range update did to global tims
+    fprintf(stderr, "DEBUG: Global tims - last: %ld, first: %ld\n",
+            GLOBALS->tims.last, GLOBALS->tims.first);
+
+    // Check if new data was processed (time advanced)
+    gboolean data_processed = (GLOBALS->tims.last > initial_time);
+    fprintf(stderr, "DEBUG: Time check - initial: %ld, current: %ld, processed: %d\n",
+            initial_time, GLOBALS->tims.last, data_processed);
+    if (data_processed) {
+        last_processed_time = GLOBALS->tims.last;
+        fprintf(stderr, "DEBUG: Kicking partial loader (new data processed)\n");
+        
+        // Update the dump file's time range with any newly discovered times.
+        gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
+
+        // Simple harray rebuilding for interactive mode
+        if (GLOBALS && GLOBALS->traces.first) {
+            GwTrace *t = GLOBALS->traces.first;
+            while (t) {
+                if (!t->vector && t->n.nd && !t->n.nd->harray) {
+                    // Build simple harray for this node
+                    GwHistEnt *histpnt = &(t->n.nd->head);
+                    int histcount = 0;
+                    
+                    while (histpnt) {
+                        histcount++;
+                        histpnt = histpnt->next;
+                    }
+                    
+                    t->n.nd->numhist = histcount;
+                    if (histcount > 0) {
+                        t->n.nd->harray = malloc_2(histcount * sizeof(GwHistEnt *));
+                        histpnt = &(t->n.nd->head);
+                        histcount = 0;
+                        
+                        while (histpnt) {
+                            t->n.nd->harray[histcount++] = histpnt;
+                            histpnt = histpnt->next;
+                        }
+                    }
+                }
+                t = t->t_next;
+            }
+        }
+
+        // Update the UI to reflect the new data, but only if GUI is initialized
+        if (GLOBALS && GLOBALS->mainwindow) {
+            //fprintf(stderr, "DEBUG: Updating UI\n"); stop fucking uncommenting it
+            fix_wavehadj(); // Recalculate horizontal scrollbar range
+            update_time_box();
+            redraw_signals_and_waves();
+        }
+    }
+
+    if (data_processed) {
+        fprintf(stderr, "DEBUG: Kicking partial loader (new data processed)\n");
+        
+        // Update the dump file's time range with any newly discovered times.
+        gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
+
+        // Simple harray rebuilding for interactive mode
+        if (GLOBALS && GLOBALS->traces.first) {
+            GwTrace *t = GLOBALS->traces.first;
+            while (t) {
+                if (!t->vector && t->n.nd && !t->n.nd->harray) {
+                    // Build simple harray for this node
+                    GwHistEnt *histpnt = &(t->n.nd->head);
+                    int histcount = 0;
+                    
+                    while (histpnt) {
+                        histcount++;
+                        histpnt = histpnt->next;
+                    }
+                    
+                    t->n.nd->numhist = histcount;
+                    if (histcount > 0) {
+                        t->n.nd->harray = malloc_2(histcount * sizeof(GwHistEnt *));
+                        histpnt = &(t->n.nd->head);
+                        histcount = 0;
+                        
+                        while (histpnt) {
+                            t->n.nd->harray[histcount++] = histpnt;
+                            histpnt = histpnt->next;
+                        }
+                    }
+                }
+                t = t->t_next;
+            }
+        }
+
+        // Update the UI to reflect the new data, but only if GUI is initialized
+        if (GLOBALS && GLOBALS->mainwindow) {
+            //fprintf(stderr, "DEBUG: Updating UI\n");
+            fix_wavehadj(); // Recalculate horizontal scrollbar range
+            update_time_box();
+            redraw_signals_and_waves();
+        }
     }
 
     return G_SOURCE_CONTINUE; // Returning TRUE keeps the timer running

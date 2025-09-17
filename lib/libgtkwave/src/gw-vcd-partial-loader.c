@@ -24,6 +24,7 @@
 #include "gw-vcd-loader-private.h" // We need access to the parent's guts
 #include "gw-vcd-file.h"
 #include "gw-vcd-file-private.h" // For accessing internal GwVcdFile members
+#include "gw-vcd-loader.h" // For accessing the loader structure
 
 #include "gw-facs.h"
 #include "gw-tree.h"
@@ -48,6 +49,9 @@ struct _GwVcdPartialLoader
     GwSharedMemory *shm;
     guint8 *shm_data;
     gssize consume_offset;
+    
+    // Track whether we've already parsed the header
+    gboolean header_parsed;
 };
 
 G_DEFINE_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW_TYPE_VCD_LOADER)
@@ -75,6 +79,7 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
     self->shm = NULL;
     self->shm_data = NULL;
     self->consume_offset = 0;
+    self->header_parsed = FALSE;
 }
 
 static void gw_vcd_partial_loader_finalize(GObject *object)
@@ -109,8 +114,12 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
     // Check if a block is ready in the SHM ring buffer
     guint8 block_status = get_8(self->shm_data, self->consume_offset);
     
+    g_printerr("DEBUG: getch_fetch called, block_status: %u, consume_offset: %ld\n",
+               block_status, self->consume_offset);
+    
     if (block_status != 0) {
         rd = get_32(self->shm_data, self->consume_offset + 1);
+        g_printerr("DEBUG: Block ready, rd: %zu\n", rd);
 
         if (rd > 0) {
             // Copy data from SHM into the VCD loader's internal buffer
@@ -128,14 +137,18 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
             if (self->consume_offset >= RING_BUFFER_SIZE) {
                 self->consume_offset %= RING_BUFFER_SIZE;
             }
+            
+            g_printerr("DEBUG: Copied %zu bytes to buffer: %s\n", rd, loader->vcdbuf);
         }
     }
 
     loader->vend = (loader->vst = loader->vcdbuf) + rd;
 
     if (!rd) {
+        g_printerr("DEBUG: No data available, returning -1\n");
         return -1; // EOF for this kick
     }
+    g_printerr("DEBUG: Returning first byte: %d ('%c')\n", (int)(*loader->vst), *loader->vst);
     return (int)(*loader->vst);
 }
 
@@ -146,8 +159,6 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 
     GwVcdLoader *loader = GW_VCD_LOADER(self);
     
-
-    
     // Store self as user data for the callback
     loader->getch_fetch_override_data = self;
     loader->getch_fetch_override = vcd_partial_getch_fetch;
@@ -155,12 +166,21 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
     
     // Actively call the parent's parser. It will use our override.
     GError *error = NULL;
+    
+    // Debug: Print times before parsing
+    g_printerr("DEBUG: Before parse - start: %ld, end: %ld, current: %ld\n",
+               loader->start_time, loader->end_time, loader->current_time);
+    
     vcd_parse(loader, &error);
+    
+    // Debug: Print times after parsing
+    g_printerr("DEBUG: After parse - start: %ld, end: %ld, current: %ld\n",
+               loader->start_time, loader->end_time, loader->current_time);
 
     // After parsing, update the loader's time range
     if (loader->current_time > loader->end_time) {
         loader->end_time = loader->current_time;
-
+        g_printerr("DEBUG: Updated end_time to: %ld\n", loader->end_time);
     }
 
     loader->getch_fetch_override = NULL; // Unhook until next kick
@@ -259,8 +279,18 @@ GwDumpFile *gw_vcd_partial_loader_load(GwVcdPartialLoader *self, const gchar *sh
     g_object_unref(facs);
     g_object_unref(tree);
 
+    // Mark header as parsed for future kicks
+    self->header_parsed = TRUE;
+
     // Don't free the buffer yet - we'll need it for subsequent kicks
     return dump_file;
+}
+
+// Check if header has been parsed
+gboolean gw_vcd_partial_loader_is_header_parsed(GwVcdPartialLoader *self)
+{
+    g_return_val_if_fail(GW_IS_VCD_PARTIAL_LOADER(self), FALSE);
+    return self->header_parsed;
 }
 
 // Helper function to update time range after processing time data
@@ -271,7 +301,9 @@ void gw_vcd_partial_loader_update_time_range(GwVcdPartialLoader *self, GwDumpFil
     
     GwVcdLoader *loader = GW_VCD_LOADER(self);
     
-
+    // Debug: Print loader time values
+    g_printerr("DEBUG: Loader times - start: %ld, end: %ld, current: %ld\n",
+               loader->start_time, loader->end_time, loader->current_time);
     
     // Only update if we have valid time data
     if (loader->start_time >= 0 && loader->end_time >= loader->start_time) {
@@ -291,5 +323,9 @@ void gw_vcd_partial_loader_update_time_range(GwVcdPartialLoader *self, GwDumpFil
             tr->end = loader->end_time;
 
         }
+        g_printerr("DEBUG: Time range updated to start: %ld, end: %ld\n",
+                   loader->start_time, loader->end_time);
+    } else {
+        g_printerr("DEBUG: Time range not updated - invalid time data\n");
     }
 }

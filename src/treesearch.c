@@ -563,7 +563,7 @@ static void XXX_select_row_callback(GtkTreeModel *model, GtkTreePath *path)
     GLOBALS->selected_hierarchy_name = strdup_2(tstring);
 
     t = gctr[depth - 1];
-    DEBUG(printf("TS: %08x %s\n", t, t->name));
+    DEBUG(printf("TS: %p %s\n", t, t->name));
     GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = t;
     GLOBALS->sig_root_treesearch_gtk2_c_1 = t->child;
     fill_sig_store();
@@ -590,7 +590,7 @@ static void XXX_unselect_row_callback(GtkTreeModel *model, GtkTreePath *path)
 
     GwTreeNode *tree_root = gw_tree_get_root(gw_dump_file_get_tree(GLOBALS->dump_file));
 
-    DEBUG(printf("TU: %08x %s\n", t, t->name));
+    DEBUG(printf("TU: %p %s\n", t, t->name));
     GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = NULL;
     GLOBALS->sig_root_treesearch_gtk2_c_1 = tree_root;
     fill_sig_store();

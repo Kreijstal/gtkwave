@@ -1791,11 +1791,21 @@ void vcd_parse(GwVcdLoader *self, GError **error)
 
             case T_ENDDEFINITIONS:
                 vcd_parse_enddefinitions(self, error);
-                // In partial loading mode, stop parsing after header
+                // In partial loading mode, stop parsing after header only for initial load
                 if (self->getch_fetch_override != NULL) {
-                    return;
+                    // Check if we can access the partial loader to see if header was already parsed
+                    // For now, use a simple workaround: if current_time is not -1, we've already parsed header
+                    if (self->current_time == -1) {
+                        return; // Initial header parsing, stop here
+                    }
+                    // Otherwise, continue parsing time/value data
                 }
                 break;
+                
+            case T_TIME:
+                // Debug: print time value being parsed
+                g_printerr("DEBUG: Parsing time value: %s\n", self->yytext);
+                // Fall through to default handling
 
             case T_STRING:
                 vcd_parse_string(self);

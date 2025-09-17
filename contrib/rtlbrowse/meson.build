@@ -39,12 +39,14 @@ rtlbrowse_include_directories = [
     '..',
 ]
 
-executable(
-    'rtlbrowse',
-    rtlbrowse_sources,
-    definehash_c,
-    vlex_c,
-    dependencies: rtlbrowse_dependencies,
-    include_directories: rtlbrowse_include_directories,
-    install: true,
-)
+if gtk4_dep.found()
+    executable(
+        'rtlbrowse',
+        rtlbrowse_sources,
+        definehash_c,
+        vlex_c,
+        dependencies: rtlbrowse_dependencies,
+        include_directories: rtlbrowse_include_directories,
+        install: true,
+    )
+endif

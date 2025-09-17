@@ -35,8 +35,10 @@ static gboolean feed_data_incrementally(GIOChannel *in_channel, FILE *vcd_file,
 
 static void test_incremental_loading(void)
 {
-    const gchar *shmidcat_path = "/home/kreijstal/git/gtkwave/builddir/src/helpers/shmidcat";
-    const gchar *input_vcd = "/home/kreijstal/git/gtkwave/lib/libgtkwave/test/files/basic.vcd";
+    const gchar *build_dir = g_getenv("MESON_BUILD_ROOT");
+    const gchar *source_dir = g_getenv("MESON_SOURCE_ROOT");
+    gchar *shmidcat_path = g_build_filename(build_dir, "src", "helpers", "shmidcat", NULL);
+    gchar *input_vcd = g_build_filename(source_dir, "lib", "libgtkwave", "test", "files", "basic.vcd", NULL);
     
     gchar *shm_id_str = NULL;
     gint child_stdin_fd, child_stdout_fd;
@@ -46,7 +48,7 @@ static void test_incremental_loading(void)
 
 
     // Launch shmidcat with pipes for stdin and stdout
-    gchar *cmd[] = { (gchar*)shmidcat_path, NULL };
+    gchar *cmd[] = { shmidcat_path, NULL };
     gboolean success = g_spawn_async_with_pipes(
         NULL, cmd, NULL,
         G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD,
@@ -149,6 +151,9 @@ static void test_incremental_loading(void)
     int status;
     waitpid(shmidcat_pid, &status, 0);
     g_spawn_close_pid(shmidcat_pid);
+
+    g_free(shmidcat_path);
+    g_free(input_vcd);
 }
 
 static gboolean feed_data_incrementally(GIOChannel *in_channel, FILE *vcd_file, 

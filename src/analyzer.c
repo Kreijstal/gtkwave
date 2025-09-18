@@ -1398,6 +1398,26 @@ unsigned IsShadowed(GwTrace *t)
     return 0;
 }
 
+void analyzer_import_all_signals(void)
+{
+    if (!GLOBALS->dump_file) return;
+
+    GwFacs *facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+    if (!facs) return;
+
+    gint num_facs = gw_facs_get_length(facs);
+    if (num_facs == 0) return;
+
+    for (gint i = 0; i < num_facs; i++) {
+        GwSymbol *s = gw_facs_get(facs, i);
+        if(s && s->n) {
+            AddNode(s->n, NULL);
+        }
+    }
+
+    redraw_signals_and_waves();
+}
+
 char *GetFullName(GwTrace *t)
 {
     if (HasAlias(t) || !HasWave(t)) {

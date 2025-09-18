@@ -4,6 +4,7 @@ struct _GwVcdFile
 {
     GwDumpFile parent_instance;
 
+    gboolean partial_load;
     gboolean preserve_glitches;
     gboolean preserve_glitches_real;
 

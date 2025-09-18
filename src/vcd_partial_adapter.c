@@ -5,6 +5,7 @@
 #include "gw-time-range.h"
 #include "wavewindow.h" // For fix_wavehadj()
 #include "menu.h"       // For redraw_signals_and_waves()
+#include "analyzer.h"   // For AddNodeTraceReturn
 #include <stdio.h>
 #include <glib.h>
 #include <inttypes.h>
@@ -226,6 +227,30 @@ GwDumpFile *vcd_partial_main(const gchar *shm_id)
     // Start the periodic timer. It will call kick_timeout_callback every 100ms.
     // Use a longer initial delay to ensure GUI is fully initialized.
     the_timer_id = g_timeout_add(500, kick_timeout_callback, NULL);
+
+    // For interactive mode, automatically add all signals to the trace window.
+    if(dump_file)
+    {
+        GwFacs *facs = gw_dump_file_get_facs(dump_file);
+        if(facs)
+        {
+            guint i;
+            guint num_facs = gw_facs_get_length(facs);
+            fprintf(stderr, "DEBUG: Automatically adding %u traces to wave window.\\n", num_facs);
+            for(i=0; i<num_facs; i++)
+            {
+                GwSymbol *fac = gw_facs_get(facs, i);
+                if(fac && fac->n)
+                {
+                    AddNodeTraceReturn(fac->n, NULL, NULL);
+                }
+            }
+        }
+
+        if (GLOBALS && GLOBALS->mainwindow) {
+            redraw_signals_and_waves();
+        }
+    }
 
     g_mutex_unlock(&loader_mutex);
     return dump_file;

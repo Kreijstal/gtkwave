@@ -33,19 +33,10 @@ static gboolean kick_timeout_callback(gpointer user_data)
         return G_SOURCE_REMOVE;
     }
 
-    // Store initial time to detect if new data is processed
-    GwTime initial_time = GLOBALS->tims.last;
-
     // "Kick" the loader to process any new data in the shared memory buffer.
-    // Check again if the_loader is still valid after the mutex was unlocked
-    if (!the_loader || !GLOBALS) {
-        g_mutex_unlock(&loader_mutex);
-        return G_SOURCE_REMOVE;
-    }
-    gw_vcd_partial_loader_kick(the_loader);
+    gboolean data_processed = gw_vcd_partial_loader_kick(the_loader);
 
     // Update time range which will set the new end time
-    // Check again if the_loader is still valid
     if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
         g_mutex_unlock(&loader_mutex);
         return G_SOURCE_REMOVE;
@@ -61,11 +52,9 @@ static gboolean kick_timeout_callback(gpointer user_data)
 
 
     // Check if new data was processed (time advanced)
-    gboolean data_processed = (GLOBALS && (GLOBALS->tims.last > initial_time));
-    
     if (data_processed) {
         /* Print a user-friendly message indicating that new data has been processed. */
-        fprintf(stdout, "INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
+        g_printerr("INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
         
         // User-requested detailed logging
         if (GLOBALS && GLOBALS->traces.first) {
@@ -75,7 +64,7 @@ static gboolean kick_timeout_callback(gpointer user_data)
                 trace_count++;
                 t = t->t_next;
             }
-            fprintf(stdout, "INFO: Total traces: %d\n", trace_count);
+            g_printerr("INFO: Total traces: %d\n", trace_count);
 
 /* 
  * Value string mapping for h_val encoding.
@@ -91,7 +80,7 @@ static const char GW_HVAL_VALUE_STR[] = "0xz11xz0xxxxxxxx";
                 }
                 if (last_he) {
                     char last_val = GW_HVAL_VALUE_STR[last_he->v.h_val & 0xF];
-                    fprintf(stdout, "INFO: First trace ('%s') summary: last value = %c at time %"PRId64"\n",
+                    g_printerr("INFO: First trace ('%s') summary: last value = %c at time %"PRId64"\n",
                             first_trace->name, last_val, last_he->time);
                 }
             }

@@ -175,10 +175,10 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
 
 
 
-void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
+gboolean gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 {
-    g_return_if_fail(GW_IS_VCD_PARTIAL_LOADER(self));
-    if (!self->shm_data) return;
+    g_return_val_if_fail(GW_IS_VCD_PARTIAL_LOADER(self), FALSE);
+    if (!self->shm_data) return FALSE;
 
     GwVcdLoader *loader = GW_VCD_LOADER(self);
     loader->vst = loader->vend = loader->vcdbuf;
@@ -215,7 +215,8 @@ void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 
     loader->getch_fetch_override = NULL; // Unhook until next kick
     loader->getch_fetch_override_data = NULL;
-    
+
+    return data_processed;
 }
 
 void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self)

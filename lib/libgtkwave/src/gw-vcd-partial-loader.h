@@ -36,7 +36,7 @@ GwVcdPartialLoader *gw_vcd_partial_loader_new(void);
 // This is now the main entry point, replacing the GwLoader vfunc
 GwDumpFile *gw_vcd_partial_loader_load(GwVcdPartialLoader *self, const gchar *shm_id, GError **error);
 
-void gw_vcd_partial_loader_kick(GwVcdPartialLoader *self);
+gboolean gw_vcd_partial_loader_kick(GwVcdPartialLoader *self);
 void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self);
 gboolean gw_vcd_partial_loader_is_header_parsed(GwVcdPartialLoader *self);
 void gw_vcd_partial_loader_update_time_range(GwVcdPartialLoader *self, GwDumpFile *dump_file);

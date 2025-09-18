@@ -18,7 +18,7 @@ def slow_stream_with_updates():
     try:
         print("Starting shmidcat process...")
         shmidcat_proc = subprocess.Popen(
-            ['builddir/src/helpers/shmidcat'],
+            ['build/src/helpers/shmidcat'],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
@@ -27,7 +27,7 @@ def slow_stream_with_updates():
 
         print("Starting GTKWave in interactive mode...")
         gtkwave_proc = subprocess.Popen(
-            ['xvfb-run', '-a', 'builddir/src/gtkwave', '-I', '-v'],
+            ['xvfb-run', '-a', 'build/src/gtkwave', '-I', '-v'],
             stdin=shmidcat_proc.stdout,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

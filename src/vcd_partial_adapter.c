@@ -7,6 +7,7 @@
 #include "menu.h"       // For redraw_signals_and_waves()
 #include <stdio.h>
 #include <glib.h>
+#include <inttypes.h>
 
 // A static pointer to hold our single loader instance for the current tab.
 static GwVcdPartialLoader *the_loader = NULL;
@@ -76,16 +77,16 @@ static gboolean kick_timeout_callback(gpointer user_data)
             if (time_range) {
                 GwTime start = gw_time_range_get_start(time_range);
                 GwTime end = gw_time_range_get_end(time_range);
-                fprintf(stderr, "DEBUG: Dump file time range - start: %ld, end: %ld\n", start, end);
+                fprintf(stderr, "DEBUG: Dump file time range - start: %"PRId64", end: %"PRId64"\n", start, end);
             }
         }
 
         // Debug: Check what the time range update did to global tims
         if (GLOBALS) {
-            fprintf(stderr, "DEBUG: Global tims - last: %ld, first: %ld\n",
+            fprintf(stderr, "DEBUG: Global tims - last: %"PRId64", first: %"PRId64"\n",
                     GLOBALS->tims.last, GLOBALS->tims.first);
 
-            fprintf(stderr, "DEBUG: Time check - initial: %ld, current: %ld, processed: %d\n",
+            fprintf(stderr, "DEBUG: Time check - initial: %"PRId64", current: %"PRId64", processed: %d\n",
                     initial_time, GLOBALS->tims.last, data_processed);
         }
         

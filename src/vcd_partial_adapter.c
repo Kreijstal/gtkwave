@@ -12,7 +12,6 @@
 // A static pointer to hold our single loader instance for the current tab.
 static GwVcdPartialLoader *the_loader = NULL;
 static guint the_timer_id = 0;
-static GwTime last_processed_time = 0;
 static GMutex loader_mutex;
 
 // The timer callback that drives live updates.
@@ -65,15 +64,34 @@ static gboolean kick_timeout_callback(gpointer user_data)
     gboolean data_processed = (GLOBALS && (GLOBALS->tims.last > initial_time));
     
     if (data_processed) {
-        // Check again if the_loader is still valid before accessing it
-        if (!the_loader || !GLOBALS) {
-            g_mutex_unlock(&loader_mutex);
-            return G_SOURCE_REMOVE;
-        }
-        
         /* Print a user-friendly message indicating that new data has been processed. */
         fprintf(stdout, "INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
         
+        // User-requested detailed logging
+        if (GLOBALS && GLOBALS->traces.first) {
+            int trace_count = 0;
+            GwTrace *t = GLOBALS->traces.first;
+            while (t) {
+                trace_count++;
+                t = t->t_next;
+            }
+            fprintf(stdout, "INFO: Total traces: %d\n", trace_count);
+
+            GwTrace *first_trace = GLOBALS->traces.first;
+            if (first_trace && !first_trace->vector) {
+                GwHistEnt *last_he = &(first_trace->n.nd->head);
+                while (last_he && last_he->next) {
+                    last_he = last_he->next;
+                }
+                if (last_he) {
+                    const char *value_str = "0xz11xz0xxxxxxxx";
+                    char last_val = value_str[last_he->v.h_val & 0xF];
+                    fprintf(stdout, "INFO: First trace ('%s') summary: last value = %c at time %"PRId64"\n",
+                            first_trace->name, last_val, last_he->time);
+                }
+            }
+        }
+
         // Check again if the_loader is still valid before accessing it
         if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
             g_mutex_unlock(&loader_mutex);
@@ -189,15 +207,14 @@ GwDumpFile *vcd_partial_main(const gchar *shm_id)
         gw_vcd_partial_loader_cleanup(the_loader);
         g_object_unref(the_loader);
         the_loader = NULL;
+        g_mutex_unlock(&loader_mutex);
         return NULL;
     }
 
     // Start the periodic timer. It will call kick_timeout_callback every 100ms.
     // Use a longer initial delay to ensure GUI is fully initialized.
-    fprintf(stderr, "DEBUG: Starting timer for periodic updates\n");
     the_timer_id = g_timeout_add(500, kick_timeout_callback, NULL);
 
-    fprintf(stderr, "DEBUG: Interactive VCD session started successfully, returning dump_file: %p\n", dump_file);
     g_mutex_unlock(&loader_mutex);
     return dump_file;
 }

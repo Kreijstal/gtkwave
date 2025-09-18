@@ -77,6 +77,12 @@ static gboolean kick_timeout_callback(gpointer user_data)
             }
             fprintf(stdout, "INFO: Total traces: %d\n", trace_count);
 
+/* 
+ * Value string mapping for h_val encoding.
+ * If the encoding changes, update this definition to keep value mapping consistent.
+ */
+static const char GW_HVAL_VALUE_STR[] = "0xz11xz0xxxxxxxx";
+
             GwTrace *first_trace = GLOBALS->traces.first;
             if (first_trace && !first_trace->vector) {
                 GwHistEnt *last_he = &(first_trace->n.nd->head);
@@ -84,8 +90,7 @@ static gboolean kick_timeout_callback(gpointer user_data)
                     last_he = last_he->next;
                 }
                 if (last_he) {
-                    const char *value_str = "0xz11xz0xxxxxxxx";
-                    char last_val = value_str[last_he->v.h_val & 0xF];
+                    char last_val = GW_HVAL_VALUE_STR[last_he->v.h_val & 0xF];
                     fprintf(stdout, "INFO: First trace ('%s') summary: last value = %c at time %"PRId64"\n",
                             first_trace->name, last_val, last_he->time);
                 }

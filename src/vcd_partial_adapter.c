@@ -167,85 +167,10 @@ static gboolean kick_timeout_callback(gpointer user_data)
 
         // Update the UI to reflect the new data, but only if GUI is initialized
         if (GLOBALS && GLOBALS->mainwindow) {
-            //fprintf(stderr, "DEBUG: Updating UI\n"); stop fucking uncommenting it
+            //fprintf(stderr, "DEBUG: Updating UI\n"); // stop fucking uncommenting it
             fix_wavehadj(); // Recalculate horizontal scrollbar range
             update_time_box();
             redraw_signals_and_waves();
-        }
-    }
-
-    if (data_processed) {
-        // Update the dump file's time range with any newly discovered times.
-        gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
-
-        // Import traces to convert vlists to proper history entries
-        if (GLOBALS && GLOBALS->dump_file && GLOBALS->traces.first) {
-            // Build a list of nodes that need importing
-            GwNode **nodes = malloc_2((GLOBALS->traces.total + 1) * sizeof(GwNode *));
-            int i = 0;
-            GwTrace *t = GLOBALS->traces.first;
-            
-            while (t && i < GLOBALS->traces.total) {
-                if (t->n.nd && t->n.nd->mv.mvlfac_vlist != NULL) {
-                    nodes[i++] = t->n.nd;
-                }
-                t = t->t_next;
-            }
-            nodes[i] = NULL; // NULL-terminate the array
-            
-            if (i > 0) {
-                GError *error = NULL;
-                if (!gw_dump_file_import_traces(GLOBALS->dump_file, nodes, &error)) {
-                    fprintf(stderr, "Failed to import traces: %s\n", error ? error->message : "Unknown error");
-                    if (error) g_error_free(error);
-                }
-            }
-            
-            free_2(nodes);
-        }
-
-        // Rebuild harray for ALL visible traces to ensure UI consistency
-        if (GLOBALS && GLOBALS->traces.first) {
-            GwTrace *t = GLOBALS->traces.first;
-            while (t) {
-                if (!t->vector && HasWave(t) && t->n.nd) {
-                    // Free the old harray if it exists
-                    if (t->n.nd->harray) {
-                        free_2(t->n.nd->harray);
-                        t->n.nd->harray = NULL;
-                    }
-                    
-                    // Build new harray from the current linked list
-                    GwHistEnt *histpnt = &(t->n.nd->head);
-                    int histcount = 0;
-                    
-                    while (histpnt) {
-                        histcount++;
-                        histpnt = histpnt->next;
-                    }
-                    
-                    t->n.nd->numhist = histcount;
-                    if (histcount > 0) {
-                        t->n.nd->harray = malloc_2(histcount * sizeof(GwHistEnt *));
-                        histpnt = &(t->n.nd->head);
-                        histcount = 0;
-                        
-                        while (histpnt) {
-                            t->n.nd->harray[histcount++] = histpnt;
-                            histpnt = histpnt->next;
-                        }
-                    }
-                }
-                t = t->t_next;
-            }
-        }
-
-        // Update the UI to reflect the new data, but only if GUI is initialized
-        if (GLOBALS && GLOBALS->mainwindow) {
-            //fprintf(stderr, "DEBUG: Updating UI\n");
-            if (fix_wavehadj) fix_wavehadj(); // Recalculate horizontal scrollbar range
-            if (update_time_box) update_time_box();
-            if (redraw_signals_and_waves) redraw_signals_and_waves();
         }
     }
 

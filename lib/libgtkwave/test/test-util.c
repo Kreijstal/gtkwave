@@ -1,19 +1,13 @@
 #include "test-util.h"
 #include "gw-dump-file.h"
 #include "gw-vcd-file.h"
+#include <string.h>
 
-static void tree_to_string_recursive(GwTreeNode *node, GString *str)
-{
+static void tree_to_string_recursive(GwTreeNode *node, GString *str) {
     for (GwTreeNode *iter = node; iter != NULL; iter = iter->next) {
-        if (iter != node) {
-            g_string_append(str, ", ");
-        }
-
+        if (iter != node) g_string_append(str, ", ");
         g_string_append(str, iter->name);
-        if (iter->t_which >= 0) {
-            g_string_append_printf(str, "(%d)", iter->t_which);
-        }
-
+        if (iter->t_which >= 0) g_string_append_printf(str, "(%d)", iter->t_which);
         if (iter->child != NULL) {
             g_string_append_c(str, '{');
             tree_to_string_recursive(iter->child, str);
@@ -21,41 +15,27 @@ static void tree_to_string_recursive(GwTreeNode *node, GString *str)
         }
     }
 }
-
-static gchar *tree_to_string(GwTreeNode *node)
-{
+static gchar *tree_to_string(GwTreeNode *node) {
     GString *str = g_string_new(NULL);
-
     tree_to_string_recursive(node, str);
-
     return g_string_free(str, FALSE);
 }
-
-void assert_tree(GwTreeNode *node, const gchar *expected)
-{
+void assert_tree(GwTreeNode *node, const gchar *expected) {
     gchar *str = tree_to_string(node);
     g_assert_cmpstr(str, ==, expected);
     g_free(str);
 }
-
-static GwTreeNode *get_tree_node_flat(GwTreeNode *node, const gchar *name)
-{
+static GwTreeNode *get_tree_node_flat(GwTreeNode *node, const gchar *name) {
     while (node != NULL) {
-        if (g_strcmp0(node->name, name) == 0) {
-            return node;
-        }
+        if (g_strcmp0(node->name, name) == 0) return node;
         node = node->next;
     }
-
     return NULL;
 }
-
-GwTreeNode *get_tree_node(GwTree *tree, const gchar *path)
-{
+GwTreeNode *get_tree_node(GwTree *tree, const gchar *path) {
     gchar **parts = g_strsplit(path, ".", 0);
     guint part_count = g_strv_length(parts);
     g_assert_cmpint(part_count, >, 0);
-
     GwTreeNode *node = gw_tree_get_root(tree);
     for (guint i = 0; i < part_count; i++) {
         node = get_tree_node_flat(node, parts[i]);
@@ -65,8 +45,15 @@ GwTreeNode *get_tree_node(GwTree *tree, const gchar *path)
             g_assert_nonnull(node);
         }
     }
-
     g_strfreev(parts);
-
     return node;
+}
+void put_32(guint8 *p, guint32 v) {
+    p[0] = (v >> 24) & 0xff;
+    p[1] = (v >> 16) & 0xff;
+    p[2] = (v >>  8) & 0xff;
+    p[3] = (v      ) & 0xff;
+}
+void put_8(guint8 *p, guint8 v) {
+    p[0] = v;
 }

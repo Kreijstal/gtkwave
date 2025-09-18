@@ -58,6 +58,24 @@ test(
     env: test_env,
 )
 
+# Add our new interactive test
+interactive_test_exe = executable(
+    'test-gw-vcd-interactive',
+    ['test-gw-vcd-interactive.c', 'test-util.c'],
+    dependencies: libgtkwave_dep,
+)
+
+test(
+    'Interactive VCD From File', # Updated test name
+    interactive_test_exe,
+    protocol: 'tap',
+    is_parallel: false,
+    env: {
+        'MESON_BUILD_ROOT': meson.build_root(),
+        'MESON_SOURCE_ROOT': meson.source_root()
+    }
+)
+
 # First, define the consumer executable so it gets built
 consumer_exe = executable(
     'test-gw-shared-memory-consumer',

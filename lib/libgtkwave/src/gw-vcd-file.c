@@ -381,6 +381,12 @@ static void gw_vcd_file_import_trace(GwVcdFile *self, GwNode *np)
     guint32 len = 1;
     guint32 vlist_type;
 
+    if (self->partial_load && np->mv.mvlfac_vlist_writer != NULL) {
+        np->mv.mvlfac_vlist = gw_vlist_writer_finish(np->mv.mvlfac_vlist_writer);
+        /* g_object_unref(np->mv.mvlfac_vlist_writer); */
+        np->mv.mvlfac_vlist_writer = NULL;
+    }
+
     if (np->mv.mvlfac_vlist == NULL) {
         return;
     }

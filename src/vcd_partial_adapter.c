@@ -121,7 +121,7 @@ static gboolean kick_timeout_callback(gpointer user_data)
             GwTrace *t = GLOBALS->traces.first;
             
             while (t && i < GLOBALS->traces.total) {
-                if (t->n.nd && t->n.nd->mv.mvlfac_vlist != NULL) {
+                if (t->n.nd && t->n.nd->mv.mvlfac_vlist_writer != NULL) {
                     nodes[i++] = t->n.nd;
                 }
                 t = t->t_next;

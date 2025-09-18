@@ -304,6 +304,7 @@ GwDumpFile *gw_vcd_partial_loader_load(GwVcdPartialLoader *self, const gchar *sh
         "time-range", initial_time_range,
         NULL
     );
+    GW_VCD_FILE(dump_file)->partial_load = TRUE;
     g_object_unref(initial_time_range);
 
     // Clean up intermediate objects (they are now owned by the dump_file)

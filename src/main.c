@@ -71,12 +71,19 @@
 
 #include "tcl_helper.h"
 #include "vcd_partial_adapter.h"
+#include "analyzer.h"
 
 #ifdef MAC_INTEGRATION
 #include <gtkosxapplication.h>
 #endif
 
 char *gtkwave_argv0_cached = NULL;
+
+static gboolean add_all_signals_idle(gpointer user_data) {
+    (void)user_data;
+    analyzer_import_all_signals();
+    return G_SOURCE_REMOVE;
+}
 
 static void switch_page(GtkNotebook *notebook, gpointer *page, guint page_num, gpointer user_data)
 {
@@ -2024,6 +2031,10 @@ savefile_bail:
         wave_gconf_client_set_string("/current/savefile", GLOBALS->filesel_writesave);
     }
 #endif
+
+    if (is_interactive) {
+        g_idle_add(add_all_signals_idle, NULL);
+    }
 
     if (GLOBALS->dual_attach_id_main_c_1) {
         fprintf(stderr,

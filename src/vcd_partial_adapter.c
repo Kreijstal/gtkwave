@@ -34,9 +34,15 @@ static gboolean kick_timeout_callback(gpointer user_data)
     }
 
     // "Kick" the loader to process any new data in the shared memory buffer.
+    // Check again if the_loader is still valid after the mutex was unlocked
+    if (!the_loader || !GLOBALS) {
+        g_mutex_unlock(&loader_mutex);
+        return G_SOURCE_REMOVE;
+    }
     gboolean data_processed = gw_vcd_partial_loader_kick(the_loader);
 
     // Update time range which will set the new end time
+    // Check again if the_loader is still valid
     if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
         g_mutex_unlock(&loader_mutex);
         return G_SOURCE_REMOVE;
@@ -51,40 +57,52 @@ static gboolean kick_timeout_callback(gpointer user_data)
     }
 
 
-    // Check if new data was processed (time advanced)
     if (data_processed) {
         /* Print a user-friendly message indicating that new data has been processed. */
-        g_printerr("INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
+        fprintf(stdout, "INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
         
         // User-requested detailed logging
-        if (GLOBALS && GLOBALS->traces.first) {
+        if (GLOBALS) {
             int trace_count = 0;
             GwTrace *t = GLOBALS->traces.first;
             while (t) {
                 trace_count++;
                 t = t->t_next;
             }
-            g_printerr("INFO: Total traces: %d\n", trace_count);
+            fprintf(stdout, "INFO: Total traces: %d\n", trace_count);
 
-/* 
- * Value string mapping for h_val encoding.
- * If the encoding changes, update this definition to keep value mapping consistent.
- */
-static const char GW_HVAL_VALUE_STR[] = "0xz11xz0xxxxxxxx";
+            if (GLOBALS->traces.first) {
+                static const char GW_HVAL_VALUE_STR[] = "0xz11xz0xxxxxxxx";
 
-            GwTrace *first_trace = GLOBALS->traces.first;
-            if (first_trace && !first_trace->vector) {
-                GwHistEnt *last_he = &(first_trace->n.nd->head);
-                while (last_he && last_he->next) {
-                    last_he = last_he->next;
-                }
-                if (last_he) {
-                    char last_val = GW_HVAL_VALUE_STR[last_he->v.h_val & 0xF];
-                    g_printerr("INFO: First trace ('%s') summary: last value = %c at time %"PRId64"\n",
-                            first_trace->name, last_val, last_he->time);
+                GwTrace *first_trace = GLOBALS->traces.first;
+                if (first_trace && !first_trace->vector && first_trace->n.nd) {
+                    GwHistEnt *first_he = first_trace->n.nd->head.next; /* head is a sentinel */
+                    GwHistEnt *last_he = &(first_trace->n.nd->head);
+                    while (last_he && last_he->next) {
+                        last_he = last_he->next;
+                    }
+
+                    if (first_he && last_he) {
+                        char first_val = GW_HVAL_VALUE_STR[first_he->v.h_val & 0xF];
+                        char last_val = GW_HVAL_VALUE_STR[last_he->v.h_val & 0xF];
+                        fprintf(stdout, "INFO: First trace ('%s') summary: first value = %c at time %"PRId64", last value = %c at time %"PRId64"\n",
+                                first_trace->name, first_val, first_he->time, last_val, last_he->time);
+                    }
+                } else if (first_trace && first_trace->vector && first_trace->n.nd) {
+                    GwHistEnt *first_he = first_trace->n.nd->head.next; /* head is a sentinel */
+                    GwHistEnt *last_he = &(first_trace->n.nd->head);
+                    while (last_he && last_he->next) {
+                        last_he = last_he->next;
+                    }
+
+                    if (first_he && last_he && first_he->v.h_vector && last_he->v.h_vector) {
+                        fprintf(stdout, "INFO: First trace ('%s') summary: first value = %s at time %"PRId64", last value = %s at time %"PRId64"\n",
+                                first_trace->name, first_he->v.h_vector, first_he->time, last_he->v.h_vector, last_he->time);
+                    }
                 }
             }
         }
+        fflush(stdout);
 
         // Check again if the_loader is still valid before accessing it
         if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {

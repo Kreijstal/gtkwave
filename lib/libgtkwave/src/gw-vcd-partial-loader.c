@@ -215,7 +215,6 @@ gboolean gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 
     loader->getch_fetch_override = NULL; // Unhook until next kick
     loader->getch_fetch_override_data = NULL;
-
     return data_processed;
 }
 

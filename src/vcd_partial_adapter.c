@@ -71,29 +71,8 @@ static gboolean kick_timeout_callback(gpointer user_data)
             return G_SOURCE_REMOVE;
         }
         
-        // Debug: Check dump file time range
-        if (GLOBALS && GLOBALS->dump_file) {
-            GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
-            if (time_range) {
-                GwTime start = gw_time_range_get_start(time_range);
-                GwTime end = gw_time_range_get_end(time_range);
-                fprintf(stderr, "DEBUG: Dump file time range - start: %"PRId64", end: %"PRId64"\n", start, end);
-            }
-        }
-
-        // Debug: Check what the time range update did to global tims
-        if (GLOBALS) {
-            fprintf(stderr, "DEBUG: Global tims - last: %"PRId64", first: %"PRId64"\n",
-                    GLOBALS->tims.last, GLOBALS->tims.first);
-
-            fprintf(stderr, "DEBUG: Time check - initial: %"PRId64", current: %"PRId64", processed: %d\n",
-                    initial_time, GLOBALS->tims.last, data_processed);
-        }
-        
-        if (GLOBALS) {
-            last_processed_time = GLOBALS->tims.last;
-        }
-        fprintf(stderr, "DEBUG: Kicking partial loader (new data processed)\n");
+        /* Print a user-friendly message indicating that new data has been processed. */
+        fprintf(stdout, "INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
         
         // Check again if the_loader is still valid before accessing it
         if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
@@ -181,28 +160,21 @@ static gboolean kick_timeout_callback(gpointer user_data)
 
 GwDumpFile *vcd_partial_main(const gchar *shm_id)
 {
-    fprintf(stderr, "DEBUG: Starting interactive VCD session with SHM ID: %s\n", shm_id);
-    fprintf(stderr, "DEBUG: Before cleanup - the_loader: %p, the_timer_id: %u\n", the_loader, the_timer_id);
-    
-    // Lock the mutex during cleanup and initialization
-    g_mutex_lock(&loader_mutex);
     vcd_partial_cleanup(); // Clean up any previous instance
-    fprintf(stderr, "DEBUG: After cleanup - the_loader: %p, the_timer_id: %u\n", the_loader, the_timer_id);
+    
+    // Lock the mutex during initialization
+    g_mutex_lock(&loader_mutex);
     
     // Set the partial_vcd flag to indicate interactive mode
     GLOBALS->partial_vcd = 1;
 
     the_loader = gw_vcd_partial_loader_new();
-    fprintf(stderr, "DEBUG: Created partial loader: %p\n", the_loader);
     GError *error = NULL;
 
     // The load function performs the initial header parse.
-    fprintf(stderr, "DEBUG: Loading initial VCD data with loader: %p\n", the_loader);
     GwDumpFile *dump_file = gw_vcd_partial_loader_load(the_loader, shm_id, &error);
-    fprintf(stderr, "DEBUG: Load result - dump_file: %p, error: %p\n", dump_file, error);
 
     if (error) {
-        fprintf(stderr, "DEBUG: Load failed: %s\n", error->message);
         // Display an error dialog to the user
         GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(GLOBALS->mainwindow),
                                                    GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -234,19 +206,15 @@ void vcd_partial_cleanup(void)
 {
     // Lock the mutex during cleanup to prevent race conditions
     g_mutex_lock(&loader_mutex);
-    fprintf(stderr, "DEBUG: Cleaning up partial loader - the_loader: %p, the_timer_id: %u\n", the_loader, the_timer_id);
     if (the_timer_id > 0) {
-        fprintf(stderr, "DEBUG: Removing timer ID: %u\n", the_timer_id);
         g_source_remove(the_timer_id);
         the_timer_id = 0;
     }
 
     if (the_loader) {
-        fprintf(stderr, "DEBUG: Cleaning up loader\n");
         gw_vcd_partial_loader_cleanup(the_loader);
         g_object_unref(the_loader);
         the_loader = NULL;
     }
-    fprintf(stderr, "DEBUG: Partial loader cleanup complete\n");
     g_mutex_unlock(&loader_mutex);
 }

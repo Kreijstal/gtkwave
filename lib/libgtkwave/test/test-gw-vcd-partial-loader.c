@@ -2,12 +2,17 @@
 #include <glib/gstdio.h>
 #include "gw-vcd-partial-loader.h"
 #include "gw-vcd-loader-private.h" /* For internal access */
+#include "gw-vcd-loader.h"
 #include "gw-dump-file.h"
 #include "gw-facs.h"
 #include "gw-symbol.h"
 #include "gw-node.h"
 #include "gw-time-range.h"
 #include "test-util.h"
+
+#define VCD_BSIZ 32768
+
+GwDumpFile *gw_vcd_partial_loader_load_internal(GwVcdPartialLoader *self, GError **error);
 
 /*
  * Test fixture to hold the state for our simulated stream.
@@ -89,16 +94,16 @@ static void test_incremental_vcd_loading(TestFixture *fixture, gconstpointer use
 
     /* Assertions after header load */
     GwFacs *facs = gw_dump_file_get_facs(fixture->dump_file);
-    g_assert_cmpint(gw_facs_get_length(facs), ==, 12, "Should have 12 symbols after header parse");
+    g_assert_cmpint(gw_facs_get_length(facs), ==, 12);
     GwTimeRange *time_range = gw_dump_file_get_time_range(fixture->dump_file);
-    g_assert_cmpint(gw_time_range_get_end(time_range), ==, 0, "End time should be 0 after header");
+    g_assert_cmpint(gw_time_range_get_end(time_range), ==, 0);
 
-    GwSymbol *bit_symbol = gw_facs_get_from_name(facs, "variables.bit");
+    GwSymbol *bit_symbol = gw_facs_lookup(facs, "variables.bit");
     g_assert_nonnull(bit_symbol);
     g_assert_nonnull(bit_symbol->n);
     /* At this point, harray might be built with only the sentinel */
     rebuild_harray_from_list(bit_symbol->n); /* Custom test helper to force rebuild */
-    g_assert_cmpint(bit_symbol->n->numhist, ==, 1, "Initial history count should be 1 (sentinel)");
+    g_assert_cmpint(bit_symbol->n->numhist, ==, 1);
 
     /* Phase 2: Feed value changes incrementally */
     gint64 expected_time = 0;
@@ -119,15 +124,15 @@ static void test_incremental_vcd_loading(TestFixture *fixture, gconstpointer use
 
         /* Assertions after each kick */
         time_range = gw_dump_file_get_time_range(fixture->dump_file);
-        g_assert_cmpint(gw_time_range_get_end(time_range), ==, expected_time, "End time should update");
+        g_assert_cmpint(gw_time_range_get_end(time_range), ==, expected_time);
 
         rebuild_harray_from_list(bit_symbol->n); /* Force rebuild for accurate check */
-        g_assert_cmpint(bit_symbol->n->numhist, ==, expected_hist_count, "History count should increment");
+        g_assert_cmpint(bit_symbol->n->numhist, ==, expected_hist_count);
     }
 
     /* Final check */
-    g_assert_cmpint(expected_time, ==, 9, "Final timestamp should be 9");
-    g_assert_cmpint(bit_symbol->n->numhist, ==, 13, "Final history count for variables.bit should be 13");
+    g_assert_cmpint(expected_time, ==, 9);
+    g_assert_cmpint(bit_symbol->n->numhist, ==, 13);
 }
 
 static void fixture_setup(TestFixture *fixture, gconstpointer user_data)

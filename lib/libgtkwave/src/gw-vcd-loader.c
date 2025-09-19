@@ -1849,6 +1849,33 @@ void vcd_parse(GwVcdLoader *self, GError **error)
 
 /*******************************************************************************/
 
+static void treenamefix_str(char *s, char delimiter)
+{
+    while (*s) {
+        if (*s == VCD_HIERARCHY_DELIMITER)
+            *s = delimiter;
+        s++;
+    }
+}
+
+static void treenamefix(GwTreeNode *t, char delimiter)
+{
+    GwTreeNode *tnext;
+    if (t->child)
+        treenamefix(t->child, delimiter);
+
+    tnext = t->next;
+
+    while (tnext) {
+        if (tnext->child)
+            treenamefix(tnext->child, delimiter);
+        treenamefix_str(tnext->name, delimiter);
+        tnext = tnext->next;
+    }
+
+    treenamefix_str(t->name, delimiter);
+}
+
 static GwSymbol *symfind_unsorted(GwVcdLoader *self, char *s)
 {
     int hv = gw_hash(s);
@@ -2305,36 +2332,6 @@ static void build_tree_from_name(GwVcdLoader *self,
             }
         }
     }
-}
-
-/*
- * unswizzle extended names in tree
- */
-static void treenamefix_str(char *s, char delimiter)
-{
-    while (*s) {
-        if (*s == VCD_HIERARCHY_DELIMITER)
-            *s = delimiter;
-        s++;
-    }
-}
-
-static void treenamefix(GwTreeNode *t, char delimiter)
-{
-    GwTreeNode *tnext;
-    if (t->child)
-        treenamefix(t->child, delimiter);
-
-    tnext = t->next;
-
-    while (tnext) {
-        if (tnext->child)
-            treenamefix(tnext->child, delimiter);
-        treenamefix_str(tnext->name, delimiter);
-        tnext = tnext->next;
-    }
-
-    treenamefix_str(t->name, delimiter);
 }
 
 GwTree *vcd_build_tree(GwVcdLoader *self, GwFacs *facs)

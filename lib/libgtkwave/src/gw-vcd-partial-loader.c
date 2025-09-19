@@ -306,7 +306,8 @@ GwDumpFile *gw_vcd_partial_loader_load_internal(GwVcdPartialLoader *self, GError
     // increment it as it processes each symbol component
     loader->numfacs = 0;
 
-
+    // Build symbols right after header parsing
+    vcd_build_symbols(loader);
 
     if (loader->numsyms == 0) {
 
@@ -315,8 +316,6 @@ GwDumpFile *gw_vcd_partial_loader_load_internal(GwVcdPartialLoader *self, GError
         return NULL;
     }
     
-    // Build symbols and facs like the regular VCD loader does
-    vcd_build_symbols(loader);
     GwFacs *facs = vcd_sortfacs(loader);
     GwTree *tree = vcd_build_tree(loader, facs);
     // Create dump file with initial time range that can be updated later

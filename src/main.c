@@ -70,6 +70,7 @@
 #include "gw-fst-file.h"
 
 #include "tcl_helper.h"
+#include "gw-vcd-stream-loader.h"
 
 #ifdef MAC_INTEGRATION
 #include <gtkosxapplication.h>
@@ -671,6 +672,7 @@ int main_2(int opt_vcd, int argc, char *argv[])
 
     int c;
     char is_vcd = 0;
+    char is_stream_vcd = 0;
     char is_smartsave = 0;
     char is_giga = 0;
     char fast_exit = 0;
@@ -912,6 +914,7 @@ do_primary_inits:
                                                    {"sstexclude", 1, 0, '5'},
                                                    {"dark", 0, 0, '6'},
                                                    {"saveonexit", 0, 0, '7'},
+                                                   {"stream-vcd", 0, 0, 256},
                                                    {0, 0, 0, 0}};
 
             c = getopt_long(argc,
@@ -924,6 +927,15 @@ do_primary_inits:
                 break; /* no more args */
 
             switch (c) {
+		case 256: /* --stream-vcd */
+		    is_stream_vcd = 1;
+                    is_vcd = 1;
+                    if (GLOBALS->loaded_file_name)
+                        free_2(GLOBALS->loaded_file_name);
+                    GLOBALS->loaded_file_name = malloc_2(4 + 1);
+                    strcpy(GLOBALS->loaded_file_name, "-vcd");
+                    break;
+
                 case 'V':
                     printf(WAVE_VERSION_INFO "\n\n"
                                              "This is free software; see the source for copying "
@@ -1437,7 +1449,36 @@ loader_check_head:
         } else {
             GLOBALS->loaded_file_type = DUMPLESS_FILE;
         }
-        GLOBALS->dump_file = vcd_recoder_main(GLOBALS->loaded_file_name);
+
+        if(is_stream_vcd) {
+            GwLoader *loader = gw_vcd_stream_loader_new();
+            set_common_settings(loader);
+
+            char buffer[4096];
+            size_t nread;
+            GError *error = NULL;
+
+            while ((nread = fread(buffer, 1, sizeof(buffer), stdin)) > 0) {
+                gw_vcd_stream_loader_pump(GW_VCD_STREAM_LOADER(loader), (const guint8 *)buffer, nread, &error);
+                if (error) {
+                    g_printerr("Error pumping stream: %s\n", error->message);
+                    g_error_free(error);
+                    exit(1);
+                }
+            }
+
+            gw_vcd_stream_loader_eof(GW_VCD_STREAM_LOADER(loader), &error);
+            if (error) {
+                g_printerr("Error finalizing stream: %s\n", error->message);
+                g_error_free(error);
+                exit(1);
+            }
+
+            GLOBALS->dump_file = gw_vcd_stream_loader_get_dump_file(GW_VCD_STREAM_LOADER(loader));
+            g_object_unref(loader);
+        } else {
+            GLOBALS->dump_file = vcd_recoder_main(GLOBALS->loaded_file_name);
+        }
     }
 
     // /* reset/initialize various markers and time values */

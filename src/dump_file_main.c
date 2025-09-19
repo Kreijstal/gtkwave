@@ -6,7 +6,7 @@
 #include "gw-fst-loader.h"
 #include "lx2.h"
 
-static void set_common_settings(GwLoader *loader)
+void set_common_settings(GwLoader *loader)
 {
     const Settings *global_settings = &GLOBALS->settings;
 

@@ -1,4 +1,5 @@
 #include "gw-vlist-reader.h"
+#include "gw-vlist-writer.h"
 #include "gw-vlist.h"
 #include "gw-vlist-packer.h"
 #include "gw-bit.h"
@@ -12,6 +13,8 @@ struct _GwVlistReader
     guint8 *depacked;
     gboolean prepacked;
 
+    GwVlistWriter *live_writer;
+
     guint position;
     guint size;
 
@@ -24,6 +27,7 @@ enum
 {
     PROP_VLIST = 1,
     PROP_PREPACKED,
+    PROP_LIVE_WRITER,
     N_PROPERTIES,
 };
 
@@ -35,6 +39,7 @@ static void gw_vlist_reader_finalize(GObject *object)
 
     g_clear_pointer(&self->vlist, gw_vlist_destroy);
     g_clear_pointer(&self->depacked, gw_vlist_packer_decompress_destroy);
+    g_clear_object(&self->live_writer);
     g_string_free(self->string_buffer, TRUE);
 
     G_OBJECT_CLASS(gw_vlist_reader_parent_class)->finalize(object);
@@ -46,7 +51,10 @@ static void gw_vlist_reader_constructed(GObject *object)
 
     G_OBJECT_CLASS(gw_vlist_reader_parent_class)->constructed(object);
 
-    if (self->prepacked) {
+    if (self->live_writer) {
+        // In live mode, size is dynamic. We don't depack.
+        self->size = 0; // Will be updated on the fly
+    } else if (self->prepacked) {
         self->depacked = gw_vlist_packer_decompress(self->vlist, &self->size);
         g_clear_pointer(&self->vlist, gw_vlist_destroy);
     } else {
@@ -70,6 +78,10 @@ static void gw_vlist_reader_set_property(GObject *object,
             self->prepacked = g_value_get_boolean(value);
             break;
 
+        case PROP_LIVE_WRITER:
+            self->live_writer = g_value_get_object(value);
+            break;
+
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
             break;
@@ -85,17 +97,17 @@ static void gw_vlist_reader_class_init(GwVlistReaderClass *klass)
     object_class->set_property = gw_vlist_reader_set_property;
 
     properties[PROP_VLIST] =
-        g_param_spec_pointer("vlist",
-                             NULL,
-                             NULL,
+        g_param_spec_pointer("vlist", NULL, NULL,
                              G_PARAM_CONSTRUCT_ONLY | G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
 
     properties[PROP_PREPACKED] =
-        g_param_spec_boolean("prepacked",
-                             NULL,
-                             NULL,
-                             FALSE,
-                             G_PARAM_CONSTRUCT_ONLY | G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
+        g_param_spec_boolean("prepacked", NULL, NULL, FALSE,
+                              G_PARAM_CONSTRUCT_ONLY | G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
+
+    properties[PROP_LIVE_WRITER] =
+        g_param_spec_object("live-writer", NULL, NULL, GW_TYPE_VLIST_WRITER,
+                            G_PARAM_CONSTRUCT_ONLY | G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
+
 
     g_object_class_install_properties(object_class, N_PROPERTIES, properties);
 }
@@ -107,32 +119,53 @@ static void gw_vlist_reader_init(GwVlistReader *self)
 
 GwVlistReader *gw_vlist_reader_new(GwVlist *vlist, gboolean prepacked)
 {
-    // clang-format off
     return g_object_new(GW_TYPE_VLIST_READER,
                         "vlist", vlist,
                         "prepacked", prepacked,
                         NULL);
-    // clang-format on
+}
+
+GwVlistReader *gw_vlist_reader_new_from_writer(GwVlistWriter *writer)
+{
+    return g_object_new(GW_TYPE_VLIST_READER,
+                        "live-writer", writer,
+                        NULL);
 }
 
 gint gw_vlist_reader_next(GwVlistReader *self)
 {
     g_return_val_if_fail(GW_IS_VLIST_READER(self), -1);
 
-    if (self->position >= self->size) {
-        return -1;
-    }
+    if (self->live_writer) {
+        GwVlist *live_vlist = gw_vlist_writer_get_live_vlist(self->live_writer);
+        if (!live_vlist) {
+            return -2; // No data yet
+        }
 
-    guint8 value = 0;
-    if (self->depacked != NULL) {
-        value = self->depacked[self->position];
+        guint live_size = gw_vlist_size(live_vlist);
+        if (self->position >= live_size) {
+            return -2; // Need more data
+        }
+
+        guint8 value = *(guint8 *)gw_vlist_locate(live_vlist, self->position);
+        self->position++;
+        return value;
+
     } else {
-        value = *(guint *)gw_vlist_locate(self->vlist, self->position);
+        if (self->position >= self->size) {
+            return -1; // EOF
+        }
+
+        guint8 value = 0;
+        if (self->depacked != NULL) {
+            value = self->depacked[self->position];
+        } else {
+            value = *(guint8 *)gw_vlist_locate(self->vlist, self->position);
+        }
+
+        self->position++;
+        return value;
     }
-
-    self->position++;
-
-    return value;
 }
 
 guint32 gw_vlist_reader_read_uv32(GwVlistReader *self)

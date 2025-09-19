@@ -5,10 +5,13 @@
 
 G_BEGIN_DECLS
 
+typedef struct _GwVlistWriter GwVlistWriter;
+
 #define GW_TYPE_VLIST_READER (gw_vlist_reader_get_type())
 G_DECLARE_FINAL_TYPE(GwVlistReader, gw_vlist_reader, GW, VLIST_READER, GObject)
 
 GwVlistReader *gw_vlist_reader_new(GwVlist *vlist, gboolean prepacked);
+GwVlistReader *gw_vlist_reader_new_from_writer(GwVlistWriter *writer);
 
 gboolean gw_vlist_reader_is_done(GwVlistReader *self);
 gint gw_vlist_reader_next(GwVlistReader *self);

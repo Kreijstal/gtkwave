@@ -19,6 +19,7 @@ libgtkwave_tests = [
     'test-gw-tree-builder',
     'test-gw-tree',
     'test-gw-vcd-loader',
+    'test-gw-vcd-stream-loader',
     'test-gw-vlist-packer',
     'test-gw-vlist-writer',
     'test-gw-vlist',

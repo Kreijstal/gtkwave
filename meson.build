@@ -37,6 +37,7 @@ bzip2_req = '>=1.0.0'
 
 glib_dep = dependency('glib-2.0', version: glib_req)
 gobject_dep = dependency('gobject-2.0', version: glib_req)
+gio_dep = dependency('gio-2.0', version: glib_req)
 gtk_dep = dependency('gtk+-3.0', version: gtk_req)
 gtk4_dep = dependency('gtk4', version: gtk4_req)
 gtk_unix_print_dep = dependency(

@@ -269,3 +269,12 @@ GwVlist *gw_vlist_writer_finish(GwVlistWriter *self)
 
     return vlist;
 }
+
+GwVlist *gw_vlist_writer_get_live_vlist(GwVlistWriter *self)
+{
+    g_return_val_if_fail(GW_IS_VLIST_WRITER(self), NULL);
+
+    // This is unsafe if the writer is using a packer, but for streaming
+    // we will ensure that prepack is false.
+    return self->vlist;
+}

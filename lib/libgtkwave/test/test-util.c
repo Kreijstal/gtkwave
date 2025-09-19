@@ -1,6 +1,8 @@
 #include "test-util.h"
 #include "gw-dump-file.h"
 #include "gw-vcd-file.h"
+#include "gw-hist-ent.h"
+#include <stdlib.h>
 
 static void tree_to_string_recursive(GwTreeNode *node, GString *str)
 {
@@ -69,4 +71,23 @@ GwTreeNode *get_tree_node(GwTree *tree, const gchar *path)
     g_strfreev(parts);
 
     return node;
+}
+
+void rebuild_harray_from_list(GwNode *nd) {
+    if (nd->harray) {
+        free(nd->harray);
+        nd->harray = NULL;
+    }
+    GwHistEnt *p = &nd->head;
+    int count = 0;
+    while(p) { count++; p = p->next; }
+    nd->numhist = count;
+    if(count > 0) {
+        nd->harray = malloc(count * sizeof(GwHistEnt *));
+        p = &nd->head;
+        for(int i=0; i<count; i++) {
+            nd->harray[i] = p;
+            p = p->next;
+        }
+    }
 }

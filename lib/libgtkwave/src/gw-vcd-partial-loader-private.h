@@ -46,4 +46,6 @@ struct _GwVcdPartialLoader
 // Forward declaration of the getch function
 static int vcd_partial_getch_fetch(GwVcdLoader *loader);
 
+GwDumpFile *gw_vcd_partial_loader_load_internal(GwVcdPartialLoader *self, GError **error);
+
 G_END_DECLS

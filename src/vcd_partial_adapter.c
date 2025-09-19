@@ -41,144 +41,20 @@ static gboolean kick_timeout_callback(gpointer user_data)
     }
     gboolean data_processed = gw_vcd_partial_loader_kick(the_loader);
 
-    // Update time range which will set the new end time
-    // Check again if the_loader is still valid
-    if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
-        g_mutex_unlock(&loader_mutex);
-        return G_SOURCE_REMOVE;
-    }
-    gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
-
-    if (GLOBALS && GLOBALS->dump_file) {
-        GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
-        if (time_range) {
-            GLOBALS->tims.last = gw_time_range_get_end(time_range);
-        }
-    }
 
 
     if (data_processed) {
-        /* Print a user-friendly message indicating that new data has been processed. */
-        fprintf(stdout, "INFO: New VCD data processed. New end time: %"PRId64"\n", GLOBALS->tims.last);
-        
-        // User-requested detailed logging
-        if (GLOBALS) {
-            int trace_count = 0;
-            GwTrace *t = GLOBALS->traces.first;
-            while (t) {
-                trace_count++;
-                t = t->t_next;
-            }
-            fprintf(stdout, "INFO: Total traces: %d\n", trace_count);
+        gw_vcd_partial_loader_process_pending_data(the_loader, GLOBALS->dump_file);
 
-            if (GLOBALS->traces.first) {
-                static const char GW_HVAL_VALUE_STR[] = "0xz11xz0xxxxxxxx";
-
-                GwTrace *first_trace = GLOBALS->traces.first;
-                if (first_trace && !first_trace->vector && first_trace->n.nd) {
-                    GwHistEnt *first_he = first_trace->n.nd->head.next; /* head is a sentinel */
-                    GwHistEnt *last_he = &(first_trace->n.nd->head);
-                    while (last_he && last_he->next) {
-                        last_he = last_he->next;
-                    }
-
-                    if (first_he && last_he) {
-                        char first_val = GW_HVAL_VALUE_STR[first_he->v.h_val & 0xF];
-                        char last_val = GW_HVAL_VALUE_STR[last_he->v.h_val & 0xF];
-                        fprintf(stdout, "INFO: First trace ('%s') summary: first value = %c at time %"PRId64", last value = %c at time %"PRId64"\n",
-                                first_trace->name, first_val, first_he->time, last_val, last_he->time);
-                    }
-                } else if (first_trace && first_trace->vector && first_trace->n.nd) {
-                    GwHistEnt *first_he = first_trace->n.nd->head.next; /* head is a sentinel */
-                    GwHistEnt *last_he = &(first_trace->n.nd->head);
-                    while (last_he && last_he->next) {
-                        last_he = last_he->next;
-                    }
-
-                    if (first_he && last_he && first_he->v.h_vector && last_he->v.h_vector) {
-                        fprintf(stdout, "INFO: First trace ('%s') summary: first value = %s at time %"PRId64", last value = %s at time %"PRId64"\n",
-                                first_trace->name, first_he->v.h_vector, first_he->time, last_he->v.h_vector, last_he->time);
-                    }
-                }
-            }
-        }
-        fflush(stdout);
-
-        // Check again if the_loader is still valid before accessing it
-        if (!the_loader || !GLOBALS || !GLOBALS->dump_file) {
-            g_mutex_unlock(&loader_mutex);
-            return G_SOURCE_REMOVE;
-        }
-        
-        // Update the dump file's time range with any newly discovered times.
-        gw_vcd_partial_loader_update_time_range(the_loader, GLOBALS->dump_file);
-
-        // Import traces to convert vlists to proper history entries
-        if (GLOBALS && GLOBALS->dump_file && GLOBALS->traces.first && GLOBALS->traces.total > 0) {
-            // Build a list of nodes that need importing
-            GwNode **nodes = malloc_2((GLOBALS->traces.total + 1) * sizeof(GwNode *));
-            int i = 0;
-            GwTrace *t = GLOBALS->traces.first;
-            
-            while (t && i < GLOBALS->traces.total) {
-                if (t->n.nd && t->n.nd->mv.mvlfac_vlist_writer != NULL) {
-                    nodes[i++] = t->n.nd;
-                }
-                t = t->t_next;
-            }
-            nodes[i] = NULL; // NULL-terminate the array
-            
-            if (i > 0) {
-                GError *error = NULL;
-                if (!gw_dump_file_import_traces(GLOBALS->dump_file, nodes, &error)) {
-                    fprintf(stderr, "Failed to import traces: %s\n", error ? error->message : "Unknown error");
-                    if (error) g_error_free(error);
-                }
-            }
-            
-            free_2(nodes);
-        }
-
-        // Rebuild harray for ALL visible traces to ensure UI consistency
-        if (GLOBALS && GLOBALS->traces.first) {
-            GwTrace *t = GLOBALS->traces.first;
-            while (t) {
-                if (!t->vector && HasWave(t) && t->n.nd && t->n.nd->harray) {
-                    // Free the old harray if it exists
-                    if (t->n.nd->harray) {
-                        free_2(t->n.nd->harray);
-                        t->n.nd->harray = NULL;
-                    }
-                    
-                    // Build new harray from the current linked list
-                    GwHistEnt *histpnt = &(t->n.nd->head);
-                    int histcount = 0;
-                    
-                    while (histpnt) {
-                        histcount++;
-                        histpnt = histpnt->next;
-                    }
-                    
-                    t->n.nd->numhist = histcount;
-                    if (histcount > 0) {
-                        t->n.nd->harray = malloc_2(histcount * sizeof(GwHistEnt *));
-                        histpnt = &(t->n.nd->head);
-                        histcount = 0;
-                        
-                        while (histpnt) {
-                            t->n.nd->harray[histcount++] = histpnt;
-                            histpnt = histpnt->next;
-                        }
-                    }
-                }
-                t = t->t_next;
+        if (GLOBALS && GLOBALS->dump_file) {
+            GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
+            if (time_range) {
+                GLOBALS->tims.last = gw_time_range_get_end(time_range);
             }
         }
 
-        // Update the UI to reflect the new data, but only if GUI is initialized
         if (GLOBALS && GLOBALS->mainwindow) {
-            //fprintf(stderr, "DEBUG: Updating UI\n"); // stop fucking uncommenting it
-            fix_wavehadj(); // Recalculate horizontal scrollbar range
+            fix_wavehadj();
             update_time_box();
             redraw_signals_and_waves();
         }

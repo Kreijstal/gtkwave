@@ -175,6 +175,46 @@ static int vcd_partial_getch_fetch(GwVcdLoader *loader)
 
 
 
+/* Add this new function to gw-vcd-partial-loader.c */
+void gw_vcd_partial_loader_process_pending_data(GwVcdPartialLoader *self, GwDumpFile *dump_file)
+{
+    GwVcdLoader *loader = GW_VCD_LOADER(self);
+
+    /* Find all nodes that have new vlist data waiting to be imported */
+    GwFacs *facs = gw_dump_file_get_facs(dump_file);
+    gint num_facs = gw_facs_get_length(facs);
+    GwNode **nodes_to_import = g_new0(GwNode *, num_facs + 1);
+    int import_count = 0;
+
+    for (gint i = 0; i < num_facs; i++) {
+        GwSymbol *s = gw_facs_get(facs, i);
+        if (s && s->n && s->n->mv.mvlfac_vlist_writer) {
+            nodes_to_import[import_count++] = s->n;
+        }
+    }
+
+    if (import_count > 0) {
+        GError *error = NULL;
+        /* This call converts the compressed vlist data into the GwHistEnt linked list */
+        if (!gw_dump_file_import_traces(dump_file, nodes_to_import, &error)) {
+            g_warning("Failed to import traces: %s", error->message);
+            g_error_free(error);
+        } else {
+            /* After importing, the harray is stale. Invalidate it for each updated node. */
+            for (int i = 0; i < import_count; i++) {
+                if (nodes_to_import[i]->harray) {
+                    free(nodes_to_import[i]->harray); /* Use regular free, not free_2 */
+                    nodes_to_import[i]->harray = NULL;
+                }
+            }
+        }
+    }
+    g_free(nodes_to_import);
+
+    /* Update the dump file's overall time range */
+    gw_vcd_partial_loader_update_time_range(self, dump_file);
+}
+
 gboolean gw_vcd_partial_loader_kick(GwVcdPartialLoader *self)
 {
     g_return_val_if_fail(GW_IS_VCD_PARTIAL_LOADER(self), FALSE);
@@ -234,29 +274,16 @@ void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self)
     getch_free(GW_VCD_LOADER(self));
 }
 
-GwDumpFile *gw_vcd_partial_loader_load(GwVcdPartialLoader *self, const gchar *shm_id, GError **error)
+GwDumpFile *gw_vcd_partial_loader_load_internal(GwVcdPartialLoader *self, GError **error)
 {
-    g_return_val_if_fail(GW_IS_VCD_PARTIAL_LOADER(self), NULL);
-
-    self->shm = gw_shared_memory_open(shm_id, error);
-    if (!self->shm) {
-        return NULL;
-    }
-    self->shm_data = gw_shared_memory_get_data(self->shm);
-
     GwVcdLoader *loader = GW_VCD_LOADER(self);
-    
-    // Manually call the buffer allocation on our loader
     getch_alloc(loader);
     loader->time_vlist = gw_vlist_create(sizeof(GwTime));
 
-    // Store self as user data for the callback
-    loader->getch_fetch_override_data = self;
-    loader->getch_fetch_override = vcd_partial_getch_fetch;
+    /* The key difference: we assume the getch_fetch_override is already set by the caller */
+    g_assert_nonnull(loader->getch_fetch_override);
 
-    // Parse the VCD header (this will stop after $enddefinitions in partial mode)
     vcd_parse(loader, error);
-
 
     // Clean up the override
     loader->getch_fetch_override = NULL;
@@ -316,6 +343,22 @@ GwDumpFile *gw_vcd_partial_loader_load(GwVcdPartialLoader *self, const gchar *sh
 
     // Don't free the buffer yet - we'll need it for subsequent kicks
     return dump_file;
+}
+
+/* The original gw_vcd_partial_loader_load now becomes a simple wrapper */
+GwDumpFile *gw_vcd_partial_loader_load(GwVcdPartialLoader *self, const gchar *shm_id, GError **error)
+{
+    self->shm = gw_shared_memory_open(shm_id, error);
+    if (!self->shm) {
+        return NULL;
+    }
+    self->shm_data = gw_shared_memory_get_data(self->shm);
+
+    GwVcdLoader *loader = GW_VCD_LOADER(self);
+    loader->getch_fetch_override_data = self;
+    loader->getch_fetch_override = vcd_partial_getch_fetch; /* The real SHM fetcher */
+
+    return gw_vcd_partial_loader_load_internal(self, error);
 }
 
 // Check if header has been parsed

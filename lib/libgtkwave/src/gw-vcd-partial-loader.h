@@ -40,6 +40,7 @@ gboolean gw_vcd_partial_loader_kick(GwVcdPartialLoader *self);
 void gw_vcd_partial_loader_cleanup(GwVcdPartialLoader *self);
 gboolean gw_vcd_partial_loader_is_header_parsed(GwVcdPartialLoader *self);
 void gw_vcd_partial_loader_update_time_range(GwVcdPartialLoader *self, GwDumpFile *dump_file);
+void gw_vcd_partial_loader_process_pending_data(GwVcdPartialLoader *self, GwDumpFile *dump_file);
 
 
 G_END_DECLS

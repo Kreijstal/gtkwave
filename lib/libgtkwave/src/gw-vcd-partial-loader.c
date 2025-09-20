@@ -960,83 +960,16 @@ static void vcd_partial_parse_valuechange_scalar(GwVcdPartialLoader *self)
     }
 }
 
-static void process_binary_stream(GwVcdPartialLoader *self, gchar typ, const gchar *vector, gint vlen, struct vcdsymbol *v, unsigned int absolute_time, GError **error)
+static void process_binary_stream(GwVcdPartialLoader *self, GwVlistWriter *writer, const gchar *vector, gint vlen, struct vcdsymbol *v, unsigned int time_delta, GError **error)
 {
     g_assert(v != NULL);
+    g_assert(writer != NULL);
     g_assert(error != NULL && *error == NULL);
-    g_debug("process_binary_stream: typ=%c, vector=%s, vlen=%d, v=%p", typ, vector, vlen, v);
+    g_debug("process_binary_stream: vector=%s, vlen=%d, v=%p, writer=%p", vector, vlen, v, writer);
 
-    // Debug: check if node-based writer already exists
-    if (v->narray && v->narray[0] && v->narray[0]->mv.mvlfac_vlist_writer != NULL) {
-        g_debug("Node-based writer already exists for symbol %s: %p", v->id, v->narray[0]->mv.mvlfac_vlist_writer);
-    }
-
-    // Check if narray is valid
-    if (v->narray == NULL) {
-        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
-                   "Invalid vcdsymbol: narray is NULL for symbol %s", v->name);
-        return;
-    }
-
-    GwNode *n = v->narray[0];
-
-    if (n->mv.mvlfac_vlist_writer == NULL) /* overloaded for vlist, numhist = last position used */
-    {
-        unsigned char typ2 = toupper(typ);
-        n->mv.mvlfac_vlist_writer =
-            gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-        gw_vlist_writer_set_live_mode(n->mv.mvlfac_vlist_writer, TRUE);
-        g_test_message("CREATING node-based writer for symbol %s (id: %s): %p", v->name, v->id, n->mv.mvlfac_vlist_writer);
-        g_debug("Created node-based writer for symbol %s: %p", v->id, n->mv.mvlfac_vlist_writer);
-
-        if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            if (typ2 == 'R' || typ2 == 'S') {
-                typ2 = 'B'; /* ok, typical case...fix as 'r' on bits variable causes
-                               recoder crash during trace extraction */
-            }
-        } else {
-            if (typ2 == 'B') {
-                typ2 = 'S'; /* should never be necessary...this is defensive */
-            }
-        }
-
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
-                                    (unsigned int)toupper(typ2)); /* B/R/P/S for decompress */
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->size);
-    }
-
-    n->last_time = self->current_time;
-
-    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, absolute_time);
-
-    if (typ == 'b' || typ == 'B') {
-        if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
-        } else {
-            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
-        }
-    } else {
-        if (v->vartype == V_REAL || v->vartype == V_STRINGTYPE || typ == 's' || typ == 'S') {
-            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
-        } else {
-            char *bits = g_alloca(v->size + 1);
-            int i, j, k = 0;
-
-            memset(bits, 0x0, v->size + 1);
-
-            for (i = 0; i < vlen; i++) {
-                for (j = 0; j < 8; j++) {
-                    bits[k++] = ((vector[i] >> (7 - j)) & 1) | '0';
-                    if (k >= v->size)
-                        goto bit_term;
-                }
-            }
-
-        bit_term:
-            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, bits);
-        }
-    }
+    // The writer is now created upfront and passed in. We just need to write the value.
+    gw_vlist_writer_append_uv32(writer, time_delta);
+    gw_vlist_writer_append_string(writer, vector);
 }
 
 static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vector, gint vlen)
@@ -2448,12 +2381,20 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
             char *content = g_strndup(content_start, content_len);
             char *trimmed_content = g_strstrip(content);
 
-            if (sscanf(trimmed_content, "%31s %255s", scope_type, scope_name) < 2) {
+            // Manual parsing instead of sscanf
+            char *space = strchr(trimmed_content, ' ');
+            if (!space) {
                 g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
                            "Failed to parse scope content: %s", trimmed_content);
                 g_free(content);
                 return;
             }
+            gsize type_len = space - trimmed_content;
+            if (type_len >= sizeof(scope_type)) {
+                type_len = sizeof(scope_type) - 1;
+            }
+            g_strlcpy(scope_type, trimmed_content, type_len + 1);
+            g_strlcpy(scope_name, g_strstrip(space + 1), sizeof(scope_name));
             g_free(content);
         } else {
             g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
@@ -2471,61 +2412,45 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
     // Map scope type to tree kind
     unsigned char ttype = GW_TREE_KIND_UNKNOWN;
 
-    switch (scope_type[0]) {
-        case 'm':
-            ttype = GW_TREE_KIND_VCD_ST_MODULE;
-            break;
-        case 't':
-            ttype = GW_TREE_KIND_VCD_ST_TASK;
-            break;
-        case 'f':
-            ttype = (scope_type[1] == 'u') ? GW_TREE_KIND_VCD_ST_FUNCTION : GW_TREE_KIND_VCD_ST_FORK;
-            break;
-        case 'b':
-            ttype = GW_TREE_KIND_VCD_ST_BEGIN;
-            break;
-        case 'g':
-            ttype = GW_TREE_KIND_VCD_ST_GENERATE;
-            break;
-        case 's':
-            ttype = GW_TREE_KIND_VCD_ST_STRUCT;
-            break;
-        case 'u':
-            ttype = GW_TREE_KIND_VCD_ST_UNION;
-            break;
-        case 'c':
-            ttype = GW_TREE_KIND_VCD_ST_CLASS;
-            break;
-        case 'i':
-            ttype = GW_TREE_KIND_VCD_ST_INTERFACE;
-            break;
-        case 'p':
-            ttype = (scope_type[1] == 'r') ? GW_TREE_KIND_VCD_ST_PROGRAM
-                                           : GW_TREE_KIND_VCD_ST_PACKAGE;
-            break;
-        case 'v':
-            if (g_str_has_prefix(scope_type, "vhdl_")) {
-                // Handle VHDL scope types
-                if (g_str_has_prefix(scope_type + 5, "architecture")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_ARCHITECTURE;
-                } else if (g_str_has_prefix(scope_type + 5, "record")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_RECORD;
-                } else if (g_str_has_prefix(scope_type + 5, "block")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_BLOCK;
-                } else if (g_str_has_prefix(scope_type + 5, "generate")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_GENERATE;
-                } else if (g_str_has_prefix(scope_type + 5, "process")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_PROCESS;
-                } else if (g_str_has_prefix(scope_type + 5, "procedure")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_PROCEDURE;
-                } else if (g_str_has_prefix(scope_type + 5, "function")) {
-                    ttype = GW_TREE_KIND_VHDL_ST_FUNCTION;
-                }
-            }
-            break;
-        default:
-            ttype = GW_TREE_KIND_UNKNOWN;
-            break;
+    if (strcmp(scope_type, "module") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_MODULE;
+    } else if (strcmp(scope_type, "task") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_TASK;
+    } else if (strcmp(scope_type, "function") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_FUNCTION;
+    } else if (strcmp(scope_type, "fork") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_FORK;
+    } else if (strcmp(scope_type, "begin") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_BEGIN;
+    } else if (strcmp(scope_type, "struct") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_STRUCT;
+    } else if (strcmp(scope_type, "union") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_UNION;
+    } else if (strcmp(scope_type, "class") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_CLASS;
+    } else if (strcmp(scope_type, "interface") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_INTERFACE;
+    } else if (strcmp(scope_type, "program") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_PROGRAM;
+    } else if (strcmp(scope_type, "package") == 0) {
+        ttype = GW_TREE_KIND_VCD_ST_PACKAGE;
+    } else if (g_str_has_prefix(scope_type, "vhdl_")) {
+        // Handle VHDL scope types
+        if (g_str_has_prefix(scope_type + 5, "architecture")) {
+            ttype = GW_TREE_KIND_VHDL_ST_ARCHITECTURE;
+        } else if (g_str_has_prefix(scope_type + 5, "record")) {
+            ttype = GW_TREE_KIND_VHDL_ST_RECORD;
+        } else if (g_str_has_prefix(scope_type + 5, "block")) {
+            ttype = GW_TREE_KIND_VHDL_ST_BLOCK;
+        } else if (g_str_has_prefix(scope_type + 5, "generate")) {
+            ttype = GW_TREE_KIND_VHDL_ST_GENERATE;
+        } else if (g_str_has_prefix(scope_type + 5, "process")) {
+            ttype = GW_TREE_KIND_VHDL_ST_PROCESS;
+        } else if (g_str_has_prefix(scope_type + 5, "procedure")) {
+            ttype = GW_TREE_KIND_VHDL_ST_PROCEDURE;
+        } else if (g_str_has_prefix(scope_type + 5, "function")) {
+            ttype = GW_TREE_KIND_VHDL_ST_FUNCTION;
+        }
     }
 
     // Push the scope to the tree builder
@@ -2722,20 +2647,28 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     self->sym_chain = g_slist_append(self->sym_chain, symbol);
     self->numfacs++;
 
-    // Create vlist writer for scalar signals only (non-scalar signals use node-based writers)
+    // Create vlist writer for this signal and store it in the hash table
+    GwVlistWriter *writer = gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
+    gw_vlist_writer_set_live_mode(writer, TRUE);
+
+    // Write the vlist header
     if (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-        GwVlistWriter *writer = gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-        gw_vlist_writer_set_live_mode(writer, TRUE); // Enable live mode
-
-        // Store writer in hash table
-        g_hash_table_insert(self->vlist_writers, g_strdup(var_id), writer);
-
-        // Initialize import position for this signal
-        g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
+        // Scalar header
+        gw_vlist_writer_append_uv32(writer, (unsigned int)'0');
+        gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
     } else {
-        // For non-scalar signals, initialize import position for node-based writers
-        g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
+        // Vector/Real/String header
+        unsigned char typ2 = (v->vartype == V_REAL || v->vartype == V_STRINGTYPE) ? 'S' : 'B';
+        gw_vlist_writer_append_uv32(writer, (unsigned int)typ2);
+        gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
+        gw_vlist_writer_append_uv32(writer, (unsigned int)v->size);
     }
+
+    // Store writer in hash table
+    g_hash_table_insert(self->vlist_writers, g_strdup(var_id), writer);
+
+    // Initialize import position for this signal
+    g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
 
 }
 
@@ -2872,58 +2805,12 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         return;
     }
 
-    // Get or create vlist writer for this symbol
+    // Get the vlist writer for this symbol from the hash table
     GwVlistWriter *writer = g_hash_table_lookup(self->vlist_writers, identifier);
     if (writer == NULL) {
-        // Create new writer if it doesn't exist
-        writer = gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-        gw_vlist_writer_set_live_mode(writer, TRUE);
-        
-        // Write header information for all signal types (matches original loader format)
-        switch (symbol->vartype) {
-            case V_REAL:
-                gw_vlist_writer_append_uv32(writer, 'R');
-                gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->vartype);
-                gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->size);
-                gw_vlist_writer_append_uv32(writer, 0);
-                gw_vlist_writer_append_string(writer, "NaN");
-                break;
-
-            case V_STRINGTYPE:
-                gw_vlist_writer_append_uv32(writer, 'S');
-                gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->vartype);
-                gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->size);
-                gw_vlist_writer_append_uv32(writer, 0);
-                gw_vlist_writer_append_string(writer, "UNDEF");
-                break;
-
-            default:
-                if (symbol->size == 1) {
-                    gw_vlist_writer_append_uv32(writer, (unsigned int)'0');
-                    gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->vartype);
-                    gw_vlist_writer_append_uv32(writer, RCV_X);
-                } else {
-                    gw_vlist_writer_append_uv32(writer, 'B');
-                    gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->vartype);
-                    gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->size);
-                    gw_vlist_writer_append_uv32(writer, 0);
-                    gw_vlist_writer_append_string(writer, "x");
-                }
-                break;
-        }
-        
-        // Only create and store hash table writers for scalar signals
-        // Non-scalar signals use node-based writers in process_binary_stream
-        if (symbol->size == 1 && symbol->vartype != V_REAL && symbol->vartype != V_STRINGTYPE) {
-            g_test_message("Storing hash table writer for scalar signal %s (id: %s)", symbol->name, identifier);
-            g_hash_table_insert(self->vlist_writers, g_strdup(identifier), writer);
-        } else {
-            // For non-scalar signals, don't create hash table writers at all
-            // They will use node-based writers created in process_binary_stream
-            g_test_message("NOT storing hash table writer for non-scalar signal %s (id: %s)", symbol->name, identifier);
-            g_object_unref(writer);
-            writer = NULL;
-        }
+        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                   "Could not find vlist writer for symbol ID: %s", identifier);
+        return;
     }
 
     // Calculate time delta from last change for this signal (counter-based for vlist)
@@ -2933,7 +2820,13 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     g_debug("Processing value change for symbol %s, narray[0]=%p, numhist=%d, vartype=%d, id=%s", symbol->name, symbol->narray[0], symbol->narray[0]->numhist, symbol->vartype, symbol->id);
     
     // Calculate time delta from last change for this signal
-    unsigned int time_delta = (unsigned int)(self->current_time - symbol->narray[0]->last_time);
+    unsigned int time_delta;
+    if (symbol->narray[0]->last_time == -1) {
+        // First transition for this signal
+        time_delta = (unsigned int)self->current_time;
+    } else {
+        time_delta = (unsigned int)(self->current_time - symbol->narray[0]->last_time);
+    }
     
     g_test_message("DEBUG: time_vlist_count=%u, numhist=%d, time_delta=%u, current_time=%" GW_TIME_FORMAT, 
                   self->time_vlist_count, symbol->narray[0]->numhist, time_delta, self->current_time);
@@ -3052,9 +2945,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                     vlen = strlen(vector);
                 }
                 
-                g_test_message("Calling process_binary_stream for %s (id: %s) with value_char=%c, vector=%s", 
-                              symbol->name, identifier, value_char, vector);
-                process_binary_stream(self, value_char, vector, vlen, symbol, self->current_time, error);
+                g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
+                              symbol->name, identifier, vector, writer);
+                process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
             }
             break;
         default:
@@ -3218,44 +3111,8 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
 
     GwTree *tree = vcd_build_tree(self, facs);
 
-    // Perform Just-in-Time Partial Import for each signal
-    // First, create vlist writers for ALL signals (like original loader's vlist_emit_finalize)
-    struct vcdsymbol *v = self->vcdsymroot;
-    while (v != NULL) {
-        if (v->narray[0] && !g_hash_table_contains(self->vlist_writers, v->id)) {
-            // Create vlist writer for this signal (like original loader)
-            GwVlistWriter *writer = gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-            gw_vlist_writer_set_live_mode(writer, TRUE);
-            
-            // Write the header exactly like the original loader
-            if (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-                gw_vlist_writer_append_uv32(writer, (unsigned int)'0');
-                gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
-                gw_vlist_writer_append_uv32(writer, RCV_X); // Initial 'X' value for scalars
-            } else {
-                // Handle Vector/Real/String headers...
-                unsigned char typ2 = (v->vartype == V_REAL || v->vartype == V_STRINGTYPE) ? 'S' : 'B';
-                gw_vlist_writer_append_uv32(writer, (unsigned int)typ2);
-                gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
-                gw_vlist_writer_append_uv32(writer, (unsigned int)v->size);
-                gw_vlist_writer_append_uv32(writer, 0);
-                gw_vlist_writer_append_string(writer, "x");
-            }
-            
-            // Only store hash table writers for scalar signals
-            // Non-scalar signals use node-based writers in process_binary_stream
-            if (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-                g_hash_table_insert(self->vlist_writers, g_strdup(v->id), writer);
-            } else {
-                // For non-scalar signals, don't create hash table writers at all
-                // They will use node-based writers created in process_binary_stream
-                g_object_unref(writer);
-            }
-        }
-        v = v->next;
-    }
-
-    // Now process all vlist writers (including newly created ones)
+    // Perform Just-in-Time Partial Import for each signal.
+    // All vlist writers are now stored in the hash table, so we can use a single loop.
     GHashTableIter iter;
     gpointer key, value;
     g_hash_table_iter_init(&iter, self->vlist_writers);
@@ -3287,263 +3144,78 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             }
 
             if (fac_symbol && fac_symbol->n) {
-                g_test_message("SCALAR PROCESSING: Processing symbol %s (%s)", fac_symbol->name, symbol_id);
-                g_debug("Found symbol: %s, node: %p", fac_symbol->name, fac_symbol->n);
                 GwNode *node = fac_symbol->n;
                 
                 // Get the current import position for this signal
                 gsize last_pos = GPOINTER_TO_UINT(g_hash_table_lookup(self->vlist_import_positions, symbol_id));
-                g_debug("Importing data for symbol %s, last position: %zu", symbol_id, last_pos);
                 GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
                 
                 // If new data has been written, process it
                 if (vlist && vlist->size > last_pos) {
-                    g_test_message("SCALAR IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist->size);
-                    g_debug("Importing new data for signal '%s': position %zu -> %u", 
-                           symbol_id, last_pos, vlist->size);
+                    g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist->size);
                     
-                    // Create a temporary reader starting from the last position
                     GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
-                    
-                    // Set the reader position to where we left off
                     gw_vlist_reader_set_position(reader, last_pos);
                     
-                    // Initialize current_time to track the absolute time for delta reconstruction
                     GwTime current_time = node->curr ? node->curr->time : -2;
+                    guint32 vlist_type = 0;
                     
-                    // Skip header values if this is the first read and vlist has data
-                    if (last_pos == 0 && vlist->size >= 2) {
-                        // Read and process the header to determine what to skip
-                        guint32 vlist_type = gw_vlist_reader_read_uv32(reader);
-
-                        
+                    // Process header if this is the first read
+                    if (last_pos == 0 && vlist->size >= 1) {
+                        vlist_type = gw_vlist_reader_read_uv32(reader);
                         if (vlist_type == '0') {
-                            // Scalar: skip vartype only - RCV_X is the first value change
                             gw_vlist_reader_read_uv32(reader); // Skip vartype
-                            // RCV_X is the first value change, which should be processed
-                            g_test_message("DEBUG: Scalar header processed, first accum should be next");
-                        } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
-                            // Vector/Real/String: skip vartype, size, and initial values
+                        } else {
                             gw_vlist_reader_read_uv32(reader); // Skip vartype
                             gw_vlist_reader_read_uv32(reader); // Skip size
-                            gw_vlist_reader_read_uv32(reader); // Skip 0
-                            
-                            if (vlist_type == 'R') {
-                                gw_vlist_reader_read_string(reader); // Skip "NaN"
-                            } else if (vlist_type == 'S') {
-                                gw_vlist_reader_read_string(reader); // Skip "UNDEF"
-                            } else {
-                                gw_vlist_reader_read_string(reader); // Skip "x"
-                            }
                         }
                     }
-                    
-                    // Process all data including the first value change after header
-                    while (!gw_vlist_reader_is_done(reader)) {
-                        // Parse the new vlist data and build GwHistEnt list
-                        g_test_message("DEBUG: Reading from scalar VList at position %zu", gw_vlist_reader_get_position(reader));
-                        static const GwBit EXTRA_VALUES[] = {
-                            GW_BIT_X, GW_BIT_Z, GW_BIT_H, GW_BIT_U, GW_BIT_W, GW_BIT_L, GW_BIT_DASH, GW_BIT_X
-                        };
-                        
+
+                    // Process value changes
+                    if (vlist_type == '0') {
+                        // Scalar value processing
+                        static const GwBit EXTRA_VALUES[] = { GW_BIT_X, GW_BIT_Z, GW_BIT_H, GW_BIT_U, GW_BIT_W, GW_BIT_L, GW_BIT_DASH, GW_BIT_X };
                         while (!gw_vlist_reader_is_done(reader)) {
                             guint32 accum = gw_vlist_reader_read_uv32(reader);
-                            g_test_message("DEBUG: Read accum from scalar VList: 0x%x", accum);
-                            
                             GwBit bit;
                             guint32 time_delta;
                             
                             if (!(accum & 1)) {
-                                // Regular 0 or 1 value - time delta is stored in upper bits
                                 time_delta = accum >> 2;
                                 bit = accum & 2 ? GW_BIT_1 : GW_BIT_0;
                             } else {
-                                // Special value (X, Z, H, U, W, L, -, X) - time delta is stored in upper bits
                                 time_delta = accum >> 4;
                                 guint index = (accum >> 1) & 7;
                                 bit = EXTRA_VALUES[index];
                             }
                             
-                            // Reconstruct absolute time from delta
-                            GwTime transition_time = current_time + time_delta;
-                            current_time = transition_time;
+                            current_time += time_delta;
                             
-                            g_test_message("DEBUG: Scalar transition - accum=0x%x, delta=%u, absolute_time=%" GW_TIME_FORMAT ", current_time before=%" GW_TIME_FORMAT ", bit=%d", 
-                                          accum, time_delta, transition_time, current_time - time_delta, bit);
-                            
-                            g_test_message("Creating transition: time=%" GW_TIME_FORMAT ", bit=%d, accum=0x%x", 
-                                          transition_time, bit, accum);
-                            
-                            // Create new history entry
                             GwHistEnt *hent = g_new0(GwHistEnt, 1);
-                            hent->time = transition_time;
+                            hent->time = current_time;
                             hent->v.h_val = bit;
-                            hent->next = NULL;
-                            
-                            // Append to the node's history list
-                            g_assert_nonnull(node->curr); // Should not be NULL after proper initialization
                             node->curr->next = hent;
                             node->curr = hent;
                             node->numhist++;
                         }
-                    }
-                    
-                    // Update the import position
-                    g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(vlist->size));
-                    g_object_unref(reader);
-                }
-                
-                // Create live reader for any future data (after partial import)
-                if (node->mv.mvlfac_vlist_reader == NULL) {
-                    node->mv.mvlfac_vlist_reader = gw_vlist_reader_new_from_writer(writer);
-                }
-            }
-        }
-    }
-
-    // --- Also process node-based vlist writers (for non-scalar signals) ---
-    struct vcdsymbol *vcd_sym = self->vcdsymroot;
-    while (vcd_sym != NULL) {
-        if (vcd_sym->narray && vcd_sym->narray[0]) {
-            GwNode *node = vcd_sym->narray[0];
-            
-            // Check if this node has a vlist writer and it's NOT already in the hash table
-            // (non-scalar signals use node-based writers, scalar signals use hash table)
-            gboolean has_node_writer = (node->mv.mvlfac_vlist_writer != NULL);
-            gboolean in_hash_table = g_hash_table_contains(self->vlist_writers, vcd_sym->id);
-            g_test_message("Checking node-based writer for %s (%s): has_node_writer=%d, in_hash_table=%d", vcd_sym->id, vcd_sym->name, has_node_writer, in_hash_table);
-        
-            if (has_node_writer && !in_hash_table) {
-                g_test_message("NON-SCALAR PROCESSING: Processing symbol %s (%s): writer=%p", vcd_sym->id, vcd_sym->name, node->mv.mvlfac_vlist_writer);
-                g_debug("Processing node-based writer for symbol %s: writer=%p", vcd_sym->id, node->mv.mvlfac_vlist_writer);
-                // Find the corresponding GwSymbol in the facs
-                GwSymbol *fac_symbol = NULL;
-                for (guint i = 0; i < gw_facs_get_length(facs); i++) {
-                    GwSymbol *fac = gw_facs_get(facs, i);
-                    if (fac->vec_root == (GwSymbol *)vcd_sym) {
-                        fac_symbol = fac;
-                        break;
-                    }
-                }
-                g_debug("Found fac_symbol for %s: %p", vcd_sym->id, fac_symbol);
-
-                if (fac_symbol && fac_symbol->n) {
-                    g_debug("Found node-based symbol: %s, node: %p", fac_symbol->name, fac_symbol->n);
-                        
-                    // Get the current import position for this signal
-                    gsize last_pos = GPOINTER_TO_UINT(g_hash_table_lookup(self->vlist_import_positions, vcd_sym->id));
-                    g_debug("Importing data for node-based symbol %s, last position: %zu, vlist_writer=%p", vcd_sym->id, last_pos, node->mv.mvlfac_vlist_writer);
-                        
-                    GwVlist *vlist = gw_vlist_writer_get_vlist(node->mv.mvlfac_vlist_writer);
-                    g_test_message("VLIST for %s (%s): %p, size=%u, last_pos=%zu", vcd_sym->id, vcd_sym->name, vlist, vlist ? vlist->size : 0, last_pos);
-                    g_debug("Vlist for %s: %p, size=%u, last_pos=%zu", vcd_sym->id, vlist, vlist ? vlist->size : 0, last_pos);
-                    
-                    // If new data has been written, process it
-                    if (vlist && vlist->size > last_pos) {
-                        g_test_message("NON-SCALAR IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", vcd_sym->id, last_pos, vlist->size);
-                        g_debug("Importing new data for node-based signal '%s': position %zu -> %u", 
-                               vcd_sym->id, last_pos, vlist->size);
-                        
-                        // Create a temporary reader starting from the last position
-                        GwVlistReader *reader = gw_vlist_reader_new_from_writer(node->mv.mvlfac_vlist_writer);
-                        
-                        // Set the reader position to where we left off
-                        gw_vlist_reader_set_position(reader, last_pos);
-                        
-                        // Initialize current_time to track the absolute time for delta reconstruction
-                        GwTime current_time = node->curr ? node->curr->time : -2;
-                        
-                        // Process header values if this is the first read and vlist has data
-                        // For partial loader, header values contain actual initial values from dumpvars
-                        if (last_pos == 0 && vlist->size >= 2) {
-                            // Nodes are already properly initialized with t=-2 and t=-1 entries
-                            // Skip creating duplicate placeholder transitions
-                            
-                            g_test_message("DEBUG: Before header processing for %s: head.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
-                                         vcd_sym->name, node->head.time, node->curr ? node->curr->time : -999, node->numhist);
-
-                            // Read and process the header to get the initial values
-                            guint32 vlist_type = gw_vlist_reader_read_uv32(reader);
-                            g_test_message("DEBUG: VList header type=%c, size=%u", (char)vlist_type, vlist->size);
-
-                            
-                            if (vlist_type == '0') {
-                                // Scalar Header: read vartype. The next item (RCV_X) IS the first transition.
-                                gw_vlist_reader_read_uv32(reader); // consume vartype
-                            } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
-                                // Vector/Real/String Header: read metadata and initial value string.
-                                gw_vlist_reader_read_uv32(reader); // consume vartype
-                                gw_vlist_reader_read_uv32(reader); // consume size
-                                gw_vlist_reader_read_uv32(reader); // consume the '0'
-                                
-                                // Create initial history entry from header value (time 0)
-                                GwHistEnt *hent = g_new0(GwHistEnt, 1);
-                                hent->time = 0;
-                                hent->next = NULL;
-                                
-                                if (vlist_type == 'R') {
-                                    const gchar *real_str = gw_vlist_reader_read_string(reader);
-                                    g_test_message("DEBUG: Using header value as initial value: %s", real_str);
-                                    hent->flags = GW_HIST_ENT_FLAG_REAL;
-                                    hent->v.h_double = g_strtod(real_str, NULL);
-                                } else if (vlist_type == 'S') {
-                                    const gchar *string_str = gw_vlist_reader_read_string(reader);
-                                    g_test_message("DEBUG: Using header value as initial value: %s", string_str);
-                                    hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-                                    hent->v.h_vector = g_strdup(string_str);
-                                } else {
-                                    const gchar *vector_str = gw_vlist_reader_read_string(reader);
-                                    g_test_message("DEBUG: Using header value as initial value: %s", vector_str);
-                                    hent->flags = 0;
-                                    gchar *vector = g_malloc(vcd_sym->size);
-                                    for (guint i = 0; i < vcd_sym->size; i++) {
-                                        vector[i] = gw_bit_from_char(vector_str[i]);
-                                    }
-                                    hent->v.h_vector = vector;
-                                }
-                                
-                                // Append to the node's history list (preserving existing decorator entries)
-                                g_assert_nonnull(node->curr); // Should point to t=-1 entry after proper initialization
-                                g_test_message("DEBUG: Appending time 0 entry to %s: curr.time=%" GW_TIME_FORMAT, vcd_sym->name, node->curr->time);
-                                node->curr->next = hent;
-                                node->curr = hent;
-                                node->numhist++;
-                                
-                                g_test_message("DEBUG: After header processing for %s: head.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
-                                             vcd_sym->name, node->head.time, node->curr->time, node->numhist);
-                            }
-                        }
-                        
-                        // Process the value changes for non-scalar signals
+                    } else {
+                        // Vector/Real/String value processing
                         while (!gw_vlist_reader_is_done(reader)) {
-                            guint32 transition_time = gw_vlist_reader_read_uv32(reader);
+                            guint32 time_delta = gw_vlist_reader_read_uv32(reader);
                             const gchar *value_str = gw_vlist_reader_read_string(reader);
                             
-                            // Reconstruct absolute time from delta
-                            GwTime absolute_time = current_time + transition_time;
-                            current_time = absolute_time;
+                            current_time += time_delta;
                             
-                            g_test_message("DEBUG: Non-scalar transition - delta=%u, absolute_time=%" GW_TIME_FORMAT ", current_time before=%" GW_TIME_FORMAT ", value=%s", 
-                                          transition_time, absolute_time, current_time - transition_time, value_str);
-                            
-                            g_test_message("CREATING TRANSITION for non-scalar signal %s: time=%" GW_TIME_FORMAT ", value=%s", 
-                                          vcd_sym->id, absolute_time, value_str);
-                            
-                            // Create new history entry
                             GwHistEnt *hent = g_new0(GwHistEnt, 1);
-                            hent->time = absolute_time;
+                            hent->time = current_time;
                             
                             if (vcd_sym->vartype == V_REAL) {
-                                // Real signal: convert string to double
                                 hent->flags = GW_HIST_ENT_FLAG_REAL;
                                 hent->v.h_double = g_strtod(value_str, NULL);
                             } else if (vcd_sym->vartype == V_STRINGTYPE) {
-                                // String signal: copy the string
                                 hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
                                 hent->v.h_vector = g_strdup(value_str);
                             } else {
-                                // Vector signal: convert char string to GwBit array
-                                hent->flags = 0;
                                 gchar *vector = g_malloc(vcd_sym->size);
                                 for (guint i = 0; i < vcd_sym->size; i++) {
                                     vector[i] = gw_bit_from_char(value_str[i]);
@@ -3551,23 +3223,17 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                                 hent->v.h_vector = vector;
                             }
                             
-                            hent->next = NULL;
-                            
-                            // Append to the node's history list
-                            g_assert_nonnull(node->curr); // Should not be NULL after proper initialization
                             node->curr->next = hent;
                             node->curr = hent;
                             node->numhist++;
                         }
-                        
-                        // Update the import position
-                        g_hash_table_insert(self->vlist_import_positions, g_strdup(vcd_sym->id), GUINT_TO_POINTER((guintptr)vlist->size));
-                        g_object_unref(reader);
                     }
+
+                    g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(vlist->size));
+                    g_object_unref(reader);
                 }
             }
         }
-        vcd_sym = vcd_sym->next;
     }
 
     // The time range is now set during dump file creation above

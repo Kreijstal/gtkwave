@@ -18,7 +18,7 @@ static void verify_signal_value(const gchar *signal_name, GwTime time, gchar exp
 {
     // For this test, we'll use a simple approach since we know the test data structure
     // In a real implementation, we'd access the vlist reader properly
-    if (g_strcmp0(signal_name, "test_signal") == 0) {
+    if (g_strcmp0(signal_name, "test.test_signal") == 0) {
         // Based on our test VCD content: #0\n0!\n#10\n1!\n
         if (time < 10) {
             g_assert_cmpint(expected_value, ==, '0');
@@ -73,10 +73,10 @@ static void test_stream_loading_basic(void)
     g_assert_cmpint(gw_dump_file_get_time_dimension(dump_file), ==, GW_TIME_DIMENSION_NANO);
     
     // Verify the content structure is correct
-    verify_content_structure(dump_file, "test_signal");
+    verify_content_structure(dump_file, "test.test_signal");
     
     // Verify the signal value at time 5 should be '0'
-    verify_signal_value("test_signal", 5, '0');
+    verify_signal_value("test.test_signal", 5, '0');
     
 
 
@@ -98,11 +98,11 @@ static void test_stream_loading_basic(void)
     g_assert_cmpint(gw_facs_get_length(facs), ==, 1);
     
     // Verify the content structure is still correct after additional data
-    verify_content_structure(dump_file, "test_signal");
+    verify_content_structure(dump_file, "test.test_signal");
     
     // Verify old value is still correct and new value is present
-    verify_signal_value("test_signal", 5, '0');
-    verify_signal_value("test_signal", 15, '1');
+    verify_signal_value("test.test_signal", 5, '0');
+    verify_signal_value("test.test_signal", 15, '1');
     
 
 
@@ -143,10 +143,10 @@ static void test_stream_loading_byte_by_byte(void)
     g_assert_cmpint(gw_facs_get_length(facs), ==, 1);
     
     // Verify the content structure is correct even with byte-by-byte feeding
-    verify_content_structure(dump_file, "test_signal");
+    verify_content_structure(dump_file, "test.test_signal");
     
     // Verify the signal value is correct after byte-by-byte feeding
-    verify_signal_value("test_signal", 5, '0');
+    verify_signal_value("test.test_signal", 5, '0');
     
 
 

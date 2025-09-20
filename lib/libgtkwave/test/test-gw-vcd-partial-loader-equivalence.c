@@ -40,6 +40,21 @@ static void test_vcd_equivalence(void)
 
     g_test_message("Partial loader completed successfully");
 
+    // --- Debug: Print symbols from both loaders ---
+    g_test_message("--- Expected Symbols (Original Loader) ---");
+    GwFacs *expected_facs = gw_dump_file_get_facs(expected_dump);
+    for (guint i = 0; i < gw_facs_get_length(expected_facs); i++) {
+        GwSymbol *sym = gw_facs_get(expected_facs, i);
+        g_test_message("[%d]: '%s'", i, sym->name);
+    }
+
+    g_test_message("--- Actual Symbols (Partial Loader) ---");
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    for (guint i = 0; i < gw_facs_get_length(actual_facs); i++) {
+        GwSymbol *sym = gw_facs_get(actual_facs, i);
+        g_test_message("[%d]: '%s'", i, sym->name);
+    }
+
     // --- 3. Compare the two dump files ---
     g_test_message("Comparing dump files for equivalence...");
     assert_dump_files_equivalent(expected_dump, actual_dump);
@@ -95,6 +110,21 @@ static void test_vcd_equivalence_streaming(void)
     g_assert_nonnull(actual_dump);
 
     g_test_message("Partial loader streaming completed successfully");
+
+    // --- Debug: Print symbols from both loaders ---
+    g_test_message("--- Expected Symbols (Original Loader) ---");
+    GwFacs *expected_facs = gw_dump_file_get_facs(expected_dump);
+    for (guint i = 0; i < gw_facs_get_length(expected_facs); i++) {
+        GwSymbol *sym = gw_facs_get(expected_facs, i);
+        g_test_message("[%d]: '%s'", i, sym->name);
+    }
+
+    g_test_message("--- Actual Symbols (Partial Loader) ---");
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    for (guint i = 0; i < gw_facs_get_length(actual_facs); i++) {
+        GwSymbol *sym = gw_facs_get(actual_facs, i);
+        g_test_message("[%d]: '%s'", i, sym->name);
+    }
 
     // --- 3. Compare the two dump files ---
     g_test_message("Comparing dump files for equivalence after streaming...");

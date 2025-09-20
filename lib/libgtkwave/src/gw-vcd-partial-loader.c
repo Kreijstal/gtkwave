@@ -2587,29 +2587,47 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     // Create initial node for the variable
     v->narray = g_new0(GwNode *, 1);
     v->narray[0] = g_new0(GwNode, 1);
-    v->narray[0]->head.time = -2;
     v->narray[0]->nname = g_strdup(v->name); // The node also needs the full name
     
-    // Set appropriate decorator values for t=-2 based on signal type
-    if (v->vartype == V_REAL) {
-        v->narray[0]->head.flags = GW_HIST_ENT_FLAG_REAL;
-        v->narray[0]->head.v.h_double = 1.0 / 0.0; // Represents 'x' (INFINITY)
-    } else if (v->vartype == V_STRINGTYPE) {
-        v->narray[0]->head.flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-        v->narray[0]->head.v.h_vector = g_strdup("x"); // Represents 'x'
-    } else {
-        v->narray[0]->head.v.h_val = GW_BIT_X; // Represents 'x' for scalars and vectors
-    }
+    // Create and link both t=-2 and t=-1 entries as separate GwHistEnt structures
+    GwHistEnt *h_minus_2 = g_new0(GwHistEnt, 1);
+    h_minus_2->time = -2;
+    h_minus_2->next = NULL;
     
-    // Create and link the t=-1 entry for proper history chain
     GwHistEnt *h_minus_1 = g_new0(GwHistEnt, 1);
     h_minus_1->time = -1;
     h_minus_1->next = NULL;
     
-    // Set appropriate decorator values based on signal type
+    // Set appropriate decorator values for t=-2 based on signal type
+    if (v->vartype == V_REAL) {
+        h_minus_2->flags = GW_HIST_ENT_FLAG_REAL;
+        // Use a specific NAN pattern that displays as 'x' instead of 'nan'
+        // Create a quiet NAN with a specific payload that gtkwave recognizes as 'x'
+        union {
+            double d;
+            guint64 u;
+        } nan_union;
+        nan_union.u = 0x7ff8000000000001ULL; // Quiet NAN with specific payload
+        h_minus_2->v.h_double = nan_union.d;
+    } else if (v->vartype == V_STRINGTYPE) {
+        h_minus_2->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
+        h_minus_2->v.h_vector = g_strdup("x"); // Represents 'x'
+    } else {
+        h_minus_2->v.h_val = GW_BIT_X; // Represents 'x' for scalars and vectors
+    }
+    
+    // Set appropriate decorator values for t=-1 based on signal type
     if (v->vartype == V_REAL) {
         h_minus_1->flags = GW_HIST_ENT_FLAG_REAL;
-        h_minus_1->v.h_double = 0.0 / 0.0; // Represents 'nan'
+        // Use union to avoid strict-aliasing warning
+        union {
+            double d;
+            guint64 u;
+        } nan_union;
+        nan_union.d = 0.0 / 0.0; // Represents 'nan' (positive NAN)
+        // Clear the sign bit to ensure positive NAN
+        nan_union.u &= ~(1ULL << 63);
+        h_minus_1->v.h_double = nan_union.d;
     } else if (v->vartype == V_STRINGTYPE) {
         h_minus_1->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
         h_minus_1->v.h_vector = g_strdup("?"); // Represents '?'
@@ -2617,13 +2635,15 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
         h_minus_1->v.h_val = GW_BIT_X; // Represents 'x' for scalars and vectors
     }
     
-    v->narray[0]->head.next = h_minus_1;
+    // Link the placeholders in the history chain
+    h_minus_2->next = h_minus_1;
+    v->narray[0]->head.next = h_minus_2; // Start chain with t=-2
     v->narray[0]->curr = h_minus_1; // CRITICAL: curr must point to t=-1 entry
-    v->narray[0]->numhist = 2; // Start with 2 entries in history
+    v->narray[0]->numhist = 0; // Start with 0 entries (placeholders are not counted in numhist)
     v->narray[0]->last_time = -1; // Initialize last_time for delta calculations
     
-    g_test_message("DEBUG: Created node for %s: head.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
-                  v->name, v->narray[0]->head.time, v->narray[0]->curr->time, v->narray[0]->numhist);
+    g_test_message("DEBUG: Created node for %s: head.next.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
+                  v->name, v->narray[0]->head.next->time, v->narray[0]->curr->time, v->narray[0]->numhist);
     
     // Set node metadata from vcdsymbol
     set_vcd_vartype(v, v->narray[0]);
@@ -2822,8 +2842,8 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     // Calculate time delta from last change for this signal
     unsigned int time_delta;
     if (symbol->narray[0]->last_time == -1) {
-        // First transition for this signal
-        time_delta = (unsigned int)self->current_time;
+        // First transition for this signal: time_delta = current_time - (-1)
+        time_delta = (unsigned int)(self->current_time - symbol->narray[0]->last_time);
     } else {
         time_delta = (unsigned int)(self->current_time - symbol->narray[0]->last_time);
     }
@@ -3157,7 +3177,10 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
                     gw_vlist_reader_set_position(reader, last_pos);
                     
-                    GwTime current_time = node->curr ? node->curr->time : -2;
+                    // The node already has the t=-2 and t=-1 placeholders created in _vcd_partial_handle_var
+                    // We need to start importing from the first vlist transition (which should be at time=0)
+                    // So we set current_time to -1 (the time of the last placeholder)
+                    GwTime current_time = -1;
                     guint32 vlist_type = 0;
                     
                     // Process header if this is the first read
@@ -3194,9 +3217,12 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             GwHistEnt *hent = g_new0(GwHistEnt, 1);
                             hent->time = current_time;
                             hent->v.h_val = bit;
+                            
+                            // The node already has t=-2 and t=-1 placeholders, so we need to
+                            // insert after the current last entry (which is at t=-1)
                             node->curr->next = hent;
                             node->curr = hent;
-                            node->numhist++;
+                            node->numhist++; // Increment numhist for each new transition
                         }
                     } else {
                         // Vector/Real/String value processing
@@ -3223,9 +3249,11 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                                 hent->v.h_vector = vector;
                             }
                             
+                            // The node already has t=-2 and t=-1 placeholders, so we need to
+                            // insert after the current last entry (which is at t=-1)
                             node->curr->next = hent;
                             node->curr = hent;
-                            node->numhist++;
+                            node->numhist++; // Increment numhist for each new transition
                         }
                     }
 
@@ -3298,7 +3326,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 if (node->curr) {
                     node->curr->next = endcap1;
                     node->curr = endcap2;
-                    node->numhist += 2;
+                    // Endcaps are not counted in numhist (matches original loader behavior)
                 }
             }
         }

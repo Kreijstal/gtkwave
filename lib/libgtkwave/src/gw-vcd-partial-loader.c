@@ -3129,6 +3129,8 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     }
     gw_facs_sort(facs); // IMPORTANT: Sort the facs by their full names
 
+    // Build tree from tree builder to get proper scope hierarchy with tree kinds
+    self->tree_root = gw_tree_builder_build(self->tree_builder);
     GwTree *tree = vcd_build_tree(self, facs);
 
     // Perform Just-in-Time Partial Import for each signal.

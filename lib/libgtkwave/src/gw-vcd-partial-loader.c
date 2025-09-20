@@ -960,16 +960,11 @@ static void vcd_partial_parse_valuechange_scalar(GwVcdPartialLoader *self)
     }
 }
 
-static void process_binary_stream(GwVcdPartialLoader *self, gchar typ, const gchar *vector, gint vlen, struct vcdsymbol *v, unsigned int absolute_time, GError **error)
+static void process_binary_stream(GwVcdPartialLoader *self, gchar typ, const gchar *vector, gint vlen, struct vcdsymbol *v, unsigned int time_delta, GError **error)
 {
     g_assert(v != NULL);
     g_assert(error != NULL && *error == NULL);
     g_debug("process_binary_stream: typ=%c, vector=%s, vlen=%d, v=%p", typ, vector, vlen, v);
-
-    // Debug: check if node-based writer already exists
-    if (v->narray && v->narray[0] && v->narray[0]->mv.mvlfac_vlist_writer != NULL) {
-        g_debug("Node-based writer already exists for symbol %s: %p", v->id, v->narray[0]->mv.mvlfac_vlist_writer);
-    }
 
     // Check if narray is valid
     if (v->narray == NULL) {
@@ -979,36 +974,10 @@ static void process_binary_stream(GwVcdPartialLoader *self, gchar typ, const gch
     }
 
     GwNode *n = v->narray[0];
+    GwVlistWriter *writer = g_hash_table_lookup(self->vlist_writers, v->id);
+    g_assert(writer != NULL);
 
-    if (n->mv.mvlfac_vlist_writer == NULL) /* overloaded for vlist, numhist = last position used */
-    {
-        unsigned char typ2 = toupper(typ);
-        n->mv.mvlfac_vlist_writer =
-            gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-        gw_vlist_writer_set_live_mode(n->mv.mvlfac_vlist_writer, TRUE);
-        g_test_message("CREATING node-based writer for symbol %s (id: %s): %p", v->name, v->id, n->mv.mvlfac_vlist_writer);
-        g_debug("Created node-based writer for symbol %s: %p", v->id, n->mv.mvlfac_vlist_writer);
-
-        if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            if (typ2 == 'R' || typ2 == 'S') {
-                typ2 = 'B'; /* ok, typical case...fix as 'r' on bits variable causes
-                               recoder crash during trace extraction */
-            }
-        } else {
-            if (typ2 == 'B') {
-                typ2 = 'S'; /* should never be necessary...this is defensive */
-            }
-        }
-
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
-                                    (unsigned int)toupper(typ2)); /* B/R/P/S for decompress */
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->size);
-    }
-
-    n->last_time = self->current_time;
-
-    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, absolute_time);
+    gw_vlist_writer_append_uv32(writer, time_delta);
 
     if (typ == 'b' || typ == 'B') {
         if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
@@ -2722,20 +2691,8 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     self->sym_chain = g_slist_append(self->sym_chain, symbol);
     self->numfacs++;
 
-    // Create vlist writer for scalar signals only (non-scalar signals use node-based writers)
-    if (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-        GwVlistWriter *writer = gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-        gw_vlist_writer_set_live_mode(writer, TRUE); // Enable live mode
-
-        // Store writer in hash table
-        g_hash_table_insert(self->vlist_writers, g_strdup(var_id), writer);
-
-        // Initialize import position for this signal
-        g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
-    } else {
-        // For non-scalar signals, initialize import position for node-based writers
-        g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
-    }
+    // For all signals, initialize import position for node-based writers
+    g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
 
 }
 
@@ -2912,18 +2869,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                 break;
         }
         
-        // Only create and store hash table writers for scalar signals
-        // Non-scalar signals use node-based writers in process_binary_stream
-        if (symbol->size == 1 && symbol->vartype != V_REAL && symbol->vartype != V_STRINGTYPE) {
-            g_test_message("Storing hash table writer for scalar signal %s (id: %s)", symbol->name, identifier);
-            g_hash_table_insert(self->vlist_writers, g_strdup(identifier), writer);
-        } else {
-            // For non-scalar signals, don't create hash table writers at all
-            // They will use node-based writers created in process_binary_stream
-            g_test_message("NOT storing hash table writer for non-scalar signal %s (id: %s)", symbol->name, identifier);
-            g_object_unref(writer);
-            writer = NULL;
-        }
+        g_hash_table_insert(self->vlist_writers, g_strdup(identifier), writer);
     }
 
     // Calculate time delta from last change for this signal (counter-based for vlist)
@@ -3054,7 +3000,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                 
                 g_test_message("Calling process_binary_stream for %s (id: %s) with value_char=%c, vector=%s", 
                               symbol->name, identifier, value_char, vector);
-                process_binary_stream(self, value_char, vector, vlen, symbol, self->current_time, error);
+                process_binary_stream(self, value_char, vector, vlen, symbol, time_delta, error);
             }
             break;
         default:
@@ -3512,6 +3458,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                                 g_test_message("DEBUG: After header processing for %s: head.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
                                              vcd_sym->name, node->head.time, node->curr->time, node->numhist);
                             }
+                            current_time = node->curr->time;
                         }
                         
                         // Process the value changes for non-scalar signals

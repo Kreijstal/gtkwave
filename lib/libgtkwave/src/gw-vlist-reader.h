@@ -18,6 +18,7 @@ guint32 gw_vlist_reader_read_uv32(GwVlistReader *self);
 const gchar *gw_vlist_reader_read_string(GwVlistReader *self);
 
 void gw_vlist_reader_set_position(GwVlistReader *self, guint position);
+guint gw_vlist_reader_get_position(GwVlistReader *self);
 
 GwVlistReader *gw_vlist_reader_new_from_writer(GwVlistWriter *writer);
 

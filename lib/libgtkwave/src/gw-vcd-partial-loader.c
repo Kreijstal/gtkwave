@@ -1701,6 +1701,7 @@ bail:
 static void vcd_partial_parse_enddefinitions(GwVcdPartialLoader *self, GError **error)
 {
     self->header_over = TRUE; /* do symbol table management here */
+    g_test_message("vcd_partial_parse_enddefinitions: header_over set to TRUE");
     create_sorted_table(self);
     if (self->symbols_sorted == NULL && self->symbols_indexed == NULL) {
         g_set_error(error,
@@ -3335,8 +3336,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         }
     }
 
-
-
     // Debug: print all symbols in the facs before creating dump file
     if (facs) {
         guint facs_count = gw_facs_get_length(facs);
@@ -3371,4 +3370,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
 
     /* Return the single dump file instance that's always kept up to date */
     return GW_DUMP_FILE(self->dump_file);
+
+
 }

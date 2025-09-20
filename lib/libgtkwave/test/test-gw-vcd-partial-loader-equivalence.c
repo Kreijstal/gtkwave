@@ -94,8 +94,9 @@ static gchar *dump_file_to_string(GwDumpFile *dump_file)
                     g_string_append_printf(output, "        transitions:\n");
                     
                     // Detailed transition listing
-                    for (GwHistEnt *hent = &node->head; hent != NULL; hent = hent->next) {
+                    for (GwHistEnt *hent = node->head.next; hent != NULL; hent = hent->next) {
                         g_string_append_printf(output, "            ");
+
                         if (hent->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
                             if (hent->flags & GW_HIST_ENT_FLAG_STRING) {
                                 if (hent->time < 0) {

@@ -272,12 +272,6 @@ void gw_vlist_reader_set_position(GwVlistReader *self, guint position)
     }
 }
 
-guint gw_vlist_reader_get_position(GwVlistReader *self)
-{
-    g_return_val_if_fail(GW_IS_VLIST_READER(self), 0);
-    return self->position;
-}
-
 gboolean gw_vlist_reader_is_done(GwVlistReader *self)
 {
     _gw_vlist_reader_update_from_live_source(self);

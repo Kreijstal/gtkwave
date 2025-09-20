@@ -3262,17 +3262,20 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             // Read and process the header to determine what to skip
                             guint32 vlist_type = gw_vlist_reader_read_uv32(reader);
                             
-                            if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
-                                // Vector/Real/String: skip vartype, size, and initial values
-                                gw_vlist_reader_read_uv32(reader); // Skip vartype
-                                gw_vlist_reader_read_uv32(reader); // Skip size
-                                gw_vlist_reader_read_uv32(reader); // Skip 0
+                            if (vlist_type == '0') {
+                                // Scalar Header: read vartype. The next item (RCV_X) IS the first transition.
+                                gw_vlist_reader_read_uv32(reader); // consume vartype
+                            } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
+                                // Vector/Real/String Header: read metadata and initial value string.
+                                gw_vlist_reader_read_uv32(reader); // consume vartype
+                                gw_vlist_reader_read_uv32(reader); // consume size
+                                gw_vlist_reader_read_uv32(reader); // consume the '0'
                                 if (vlist_type == 'R') {
-                                    gw_vlist_reader_read_string(reader); // Skip "NaN"
+                                    gw_vlist_reader_read_string(reader); // consume "NaN"
                                 } else if (vlist_type == 'S') {
-                                    gw_vlist_reader_read_string(reader); // Skip "UNDEF"
+                                    gw_vlist_reader_read_string(reader); // consume "UNDEF"
                                 } else {
-                                    gw_vlist_reader_read_string(reader); // Skip "x"
+                                    gw_vlist_reader_read_string(reader); // consume "x"
                                 }
                             }
                         }

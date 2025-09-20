@@ -38,20 +38,32 @@ static gchar *dump_file_to_string(GwDumpFile *dump_file)
     g_string_append_printf(output, "global time offset: %" GW_TIME_FORMAT "\n", gw_dump_file_get_global_time_offset(dump_file));
     g_string_append(output, "\n");
 
-    // Tree section (simplified)
+    // Tree section
     g_string_append(output, "Tree\n");
     g_string_append(output, "----\n");
     
-    // For now, just indicate we have a tree without dumping full structure
     GwTree *tree = gw_dump_file_get_tree(dump_file);
     if (tree && gw_tree_get_root(tree)) {
-        g_string_append(output, "tree structure present\n");
+        // Simplified tree dump - just show the structure without recursion
+        GwTreeNode *root = gw_tree_get_root(tree);
+        if (root && root->name) {
+            gchar *kind = g_enum_to_string(GW_TYPE_TREE_KIND, root->kind);
+            g_string_append_printf(output, "%s (kind=%s, t_which=%d)\n", root->name, kind, root->t_which);
+            g_free(kind);
+            
+            // Show direct children
+            for (GwTreeNode *child = root->child; child != NULL; child = child->next) {
+                kind = g_enum_to_string(GW_TYPE_TREE_KIND, child->kind);
+                g_string_append_printf(output, "    %s (kind=%s, t_which=%d)\n", child->name, kind, child->t_which);
+                g_free(kind);
+            }
+        }
     } else {
         g_string_append(output, "no tree structure\n");
     }
     g_string_append(output, "\n");
 
-    // Facs section - this is the most important part for equivalence
+    // Facs section - detailed format matching dump.c
     g_string_append(output, "Facs\n");
     g_string_append(output, "----\n");
     
@@ -65,22 +77,54 @@ static gchar *dump_file_to_string(GwDumpFile *dump_file)
                 if (symbol->n) {
                     GwNode *node = symbol->n;
                     g_string_append_printf(output, "    node: %s\n", node->nname);
-                    g_string_append_printf(output, "        vartype: %d\n", node->vartype);
-                    g_string_append_printf(output, "        vardt: %d\n", node->vardt);
-                    g_string_append_printf(output, "        vardir: %d\n", node->vardir);
+                    
+                    // Use enum strings instead of numeric values
+                    gchar *vartype_str = g_enum_to_string(GW_TYPE_VAR_TYPE, node->vartype);
+                    gchar *vardt_str = g_enum_to_string(GW_TYPE_VAR_DATA_TYPE, node->vardt);
+                    gchar *vardir_str = g_enum_to_string(GW_TYPE_VAR_DIR, node->vardir);
+                    
+                    g_string_append_printf(output, "        vartype: %s\n", vartype_str);
+                    g_string_append_printf(output, "        vardt: %s\n", vardt_str);
+                    g_string_append_printf(output, "        vardir: %s\n", vardir_str);
                     g_string_append_printf(output, "        varxt: %d\n", node->varxt);
                     g_string_append_printf(output, "        extvals: %d\n", node->extvals);
                     g_string_append_printf(output, "        msi, lsi: %d, %d\n", node->msi, node->lsi);
                     g_string_append_printf(output, "        numhist: %d\n", node->numhist);
                     
-                    // Count actual transitions
-                    guint transition_count = 0;
-                    GwHistEnt *hent = node->head.next;
-                    while (hent) {
-                        transition_count++;
-                        hent = hent->next;
+                    g_string_append_printf(output, "        transitions:\n");
+                    
+                    // Detailed transition listing
+                    for (GwHistEnt *hent = node->head.next; hent != NULL; hent = hent->next) {
+                        g_string_append_printf(output, "            ");
+                        
+                        if (hent->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
+                            if (hent->flags & GW_HIST_ENT_FLAG_STRING) {
+                                if (hent->time < 0) {
+                                    g_string_append_printf(output, "?");
+                                } else {
+                                    g_string_append_printf(output, "\"%s\"", hent->v.h_vector);
+                                }
+                            } else {
+                                g_string_append_printf(output, "%f", hent->v.h_double);
+                            }
+                        } else if (node->msi == node->lsi) {
+                            g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_val));
+                        } else {
+                            if (hent->time < 0) {
+                                g_string_append_printf(output, "?");
+                            } else {
+                                gint bits = ABS(node->msi - node->lsi) + 1;
+                                for (gint i = 0; i < bits; i++) {
+                                    g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_vector[i]));
+                                }
+                            }
+                        }
+                        g_string_append_printf(output, " @ %" GW_TIME_FORMAT "\n", hent->time);
                     }
-                    g_string_append_printf(output, "        transitions: %u\n", transition_count);
+                    
+                    g_free(vartype_str);
+                    g_free(vardt_str);
+                    g_free(vardir_str);
                 }
             }
         }

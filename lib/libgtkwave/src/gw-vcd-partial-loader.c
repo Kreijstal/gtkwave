@@ -77,6 +77,7 @@ struct _GwVcdPartialLoader
 
     gboolean header_over;
     gboolean is_streaming_mode;
+    gboolean is_fully_initialized;
 
     /* NEW: Stream parsing members */
     GString *internal_buffer;
@@ -1699,10 +1700,92 @@ bail:
         sync_end(self);
 }
 
+static GwTree *vcd_build_tree(GwVcdPartialLoader *self, GwFacs *facs);
+
+static void _gw_vcd_partial_loader_initialize_dump_file(GwVcdPartialLoader *self)
+{
+    g_test_message("Initializing dump file structures");
+
+    // 0. Create sorted symbol table for duplicate detection
+    create_sorted_table(self);
+    
+    vcd_partial_build_symbols(self);
+
+    if (self->sym_chain == NULL || self->numfacs == 0) {
+        return; // No signals defined yet
+    }
+
+    // Create facs from the now-finalized symbol chain
+    GwFacs *facs = gw_facs_new(self->numfacs);
+    guint i = 0;
+    for (GSList *iter = self->sym_chain; iter != NULL; iter = iter->next) {
+        gw_facs_set(facs, i++, iter->data);
+    }
+    gw_facs_sort(facs); // IMPORTANT: Sort the facs by their full names
+
+    // Build tree from tree builder to get proper scope hierarchy with tree kinds
+    self->tree_root = gw_tree_builder_build(self->tree_builder);
+    GwTree *tree = vcd_build_tree(self, facs);
+
+    g_debug("Current time properties: scale=%" GW_TIME_FORMAT ", dimension=%d",
+            self->time_scale, self->time_dimension);
+
+    // Only create dump file when time properties are known
+    if (self->time_scale == 0 || self->time_dimension == GW_TIME_DIMENSION_NONE) {
+        g_debug("Time properties not yet known, cannot create dump file");
+        return;
+    }
+
+    // Always create a new dump file with the updated tree and facs
+    if (self->dump_file != NULL) {
+        g_object_unref(self->dump_file);
+    }
+    
+    g_debug("Creating dump file with time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
+            self->time_scale, self->time_dimension);
+    GwTimeRange *time_range = gw_time_range_new(self->start_time, self->end_time);
+    self->dump_file = g_object_new(GW_TYPE_VCD_FILE,
+                                  "time-scale", self->time_scale,
+                                  "time-dimension", self->time_dimension,
+                                  "time-range", time_range,
+                                  "tree", tree,
+                                  "facs", facs,
+                                  NULL);
+    g_object_unref(time_range);
+    g_debug("Dump file created successfully: %p", self->dump_file);
+
+
+
+    // The object takes ownership, so we don't need to unref tree and facs
+    
+    self->is_fully_initialized = TRUE;
+}
+
+// Handle streaming mode initialization when $enddefinitions is not present
+static void _gw_vcd_partial_loader_initialize_streaming_mode(GwVcdPartialLoader *self)
+{
+    if (self->is_fully_initialized) {
+        return; // Already initialized
+    }
+    
+    // Check if we have enough information to initialize in streaming mode
+    if (self->time_scale != 0 && self->numfacs > 0 && 
+        gw_tree_builder_get_current_scope(self->tree_builder) == NULL) {
+        g_test_message("Initializing streaming mode without $enddefinitions");
+        _gw_vcd_partial_loader_initialize_dump_file(self);
+        self->is_streaming_mode = TRUE;
+    }
+}
+
 static void vcd_partial_parse_enddefinitions(GwVcdPartialLoader *self, GError **error)
 {
     self->header_over = TRUE; /* do symbol table management here */
     g_test_message("vcd_partial_parse_enddefinitions: header_over set to TRUE");
+    
+    if (!self->is_fully_initialized) {
+        _gw_vcd_partial_loader_initialize_dump_file(self);
+    }
+    
     create_sorted_table(self);
     if (self->symbols_sorted == NULL && self->symbols_indexed == NULL) {
         g_set_error(error,
@@ -2052,6 +2135,7 @@ static void treenamefix(GwTreeNode *t, char delimiter)
     treenamefix_str(t->name, delimiter);
 }
 
+// This function is now only used in initialization
 static GwTree *vcd_build_tree(GwVcdPartialLoader *self, GwFacs *facs)
 {
     // TODO: replace module_tree by GString to dynamically allocate enough memory
@@ -2277,8 +2361,9 @@ static void process_vcd_token(GwVcdPartialLoader *self, const gchar *token, gsiz
         g_debug("Processing upscope command");
         gw_tree_builder_pop_scope(self->tree_builder);
     } else if (g_str_has_prefix(trimmed_token, "$enddefinitions")) {
-        // Handle enddefinitions - just ignore for now
-        g_debug("Ignoring enddefinitions command");
+        // Handle enddefinitions
+        g_debug("Processing enddefinitions command");
+        vcd_partial_parse_enddefinitions(self, error);
     } else if (g_str_has_prefix(trimmed_token, "$date")) {
         // Handle date - just ignore for now
         g_debug("Ignoring date command");
@@ -3129,41 +3214,22 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
 
 
 
+
+
     // --- CRITICAL POST-PROCESSING STEPS ---
     // These steps are essential for creating properly named and searchable symbols
     
-    // For streaming mode: only build structures once
-    g_test_message("Streaming mode check: is_streaming_mode=%d, dump_file=%p", self->is_streaming_mode, self->dump_file);
-    if (self->is_streaming_mode && self->dump_file != NULL) {
-        // Skip structure building and only perform JIT import
-        g_test_message("Streaming mode: reusing existing dump file structures");
-        goto jit_import_only;
+    // Check if initialization is complete
+    if (!self->is_fully_initialized) {
+        // Try to initialize in streaming mode if we have enough information
+        _gw_vcd_partial_loader_initialize_streaming_mode(self);
+        if (!self->is_fully_initialized) {
+            return NULL; // Can't get a file until initialization is complete
+        }
     }
 
-    
-    g_test_message("get_dump_file called: sym_chain=%p, numfacs=%u", self->sym_chain, self->numfacs);
-    
-    // 0. Create sorted symbol table for duplicate detection
-    create_sorted_table(self);
-    
-    vcd_partial_build_symbols(self);
-
-    if (self->sym_chain == NULL || self->numfacs == 0) {
-        return NULL; // No signals defined yet
-    }
-
-    // Create facs from the now-finalized symbol chain
-    GwFacs *facs = gw_facs_new(self->numfacs);
-    guint i = 0;
-    for (GSList *iter = self->sym_chain; iter != NULL; iter = iter->next) {
-        gw_facs_set(facs, i++, iter->data);
-    }
-    gw_facs_sort(facs); // IMPORTANT: Sort the facs by their full names
-
-    // Build tree from tree builder to get proper scope hierarchy with tree kinds
-    // Build tree from tree builder to get proper scope hierarchy with tree kinds
-    self->tree_root = gw_tree_builder_build(self->tree_builder);
-    GwTree *tree = vcd_build_tree(self, facs);
+    // Get the facs from the existing dump file
+    GwFacs *facs = gw_dump_file_get_facs(GW_DUMP_FILE(self->dump_file));
 
     // Perform Just-in-Time Partial Import for each signal.
     // All vlist writers are now stored in the hash table, so we can use a single loop.
@@ -3298,15 +3364,11 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         }
     }
 
-    // The time range is now set during dump file creation above
-
-    g_debug("Current time properties: scale=%" GW_TIME_FORMAT ", dimension=%d",
-            self->time_scale, self->time_dimension);
-
-    // Only create dump file when time properties are known
-    if (self->time_scale == 0 || self->time_dimension == GW_TIME_DIMENSION_NONE) {
-        g_debug("Time properties not yet known, cannot create dump file");
-        return NULL;
+    // Update the time range of the persistent dump file
+    if (self->end_time > self->start_time) {
+        GwTimeRange *time_range = gw_time_range_new(self->start_time, self->end_time);
+        gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
+        g_object_unref(time_range);
     }
 
     // Add endcaps for equivalence with original loader
@@ -3356,7 +3418,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 endcap1->next = endcap2;
                 endcap2->next = NULL;
                 
-                // Append endcaps to history list
+                // Append endcaps to history list (after all imported data)
                 if (node->curr) {
                     node->curr->next = endcap1;
                     node->curr = endcap2;
@@ -3366,39 +3428,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         }
     }
 
-    // Debug: print all symbols in the facs before creating dump file
-    if (facs) {
-        guint facs_count = gw_facs_get_length(facs);
-        g_test_message("Facs contains %u symbols:", facs_count);
-        for (guint i = 0; i < facs_count; i++) {
-            GwSymbol *sym = gw_facs_get(facs, i);
-            if (sym && sym->name) {
-                g_test_message("  Facs symbol %u: %s", i, sym->name);
-            }
-        }
-    }
-
-    // Always create a new dump file with the updated tree and facs
-    if (self->dump_file != NULL) {
-        g_object_unref(self->dump_file);
-    }
-    
-    g_debug("Creating dump file with time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
-            self->time_scale, self->time_dimension);
-    GwTimeRange *time_range = gw_time_range_new(self->start_time, self->end_time);
-    self->dump_file = g_object_new(GW_TYPE_VCD_FILE,
-                                  "time-scale", self->time_scale,
-                                  "time-dimension", self->time_dimension,
-                                  "time-range", time_range,
-                                  "tree", tree,
-                                  "facs", facs,
-                                  NULL);
-    g_object_unref(time_range);
-    g_debug("Dump file created successfully: %p", self->dump_file);
-
-    // The object takes ownership, so we don't need to unref tree and facs
-
-jit_import_only:
     // --- Just-in-Time Partial Import (Always Runs) ---
     // This block runs on every call to import new data
     

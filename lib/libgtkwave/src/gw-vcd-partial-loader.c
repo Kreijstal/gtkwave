@@ -2,6 +2,12 @@
 #include "gw-dump-file.h"
 #include "gw-loader.h"
 
+/* Struct to hold symbol properties for JIT import */
+typedef struct {
+    int vartype;
+    int size;
+} GwVcdSymbolProperties;
+
 #include "gw-vcd-file.h"
 #include "gw-vcd-file-private.h"
 #include "gw-util.h"
@@ -87,6 +93,7 @@ struct _GwVcdPartialLoader
     /* Vlist writers for each signal */
     GHashTable *vlist_writers; /* Maps vcdsymbol id -> GwVlistWriter */
     GHashTable *vlist_import_positions; /* Maps vcdsymbol id -> gsize (import position) */
+    GHashTable *vlist_symbol_properties; /* Maps vcdsymbol id -> GwVcdSymbolProperties */
     gboolean vlist_prepack;
     gint vlist_compression_level;
     GwVlist *time_vlist;
@@ -2199,6 +2206,10 @@ static void gw_vcd_partial_loader_finalize(GObject *object)
         g_hash_table_destroy(self->vlist_writers);
         self->vlist_writers = NULL;
     }
+    if (self->vlist_symbol_properties != NULL) {
+        g_hash_table_destroy(self->vlist_symbol_properties);
+        self->vlist_symbol_properties = NULL;
+    }
     if (self->vlist_import_positions != NULL) {
         g_hash_table_destroy(self->vlist_import_positions);
         self->vlist_import_positions = NULL;
@@ -2262,6 +2273,9 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
 
     /* Initialize vlist import positions hash table */
     self->vlist_import_positions = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    /* Initialize symbol properties hash table */
+    self->vlist_symbol_properties = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
     /* Initialize time vlist */
 
@@ -2780,8 +2794,15 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     // Store writer in hash table
     g_hash_table_insert(self->vlist_writers, g_strdup(var_id), writer);
 
-    // Initialize import position for this signal
+    // Store symbol properties for JIT import
+    GwVcdSymbolProperties *props = g_new0(GwVcdSymbolProperties, 1);
+    props->vartype = v->vartype;
+    props->size = v->size;
+    g_hash_table_insert(self->vlist_symbol_properties, g_strdup(var_id), props);
+
+    // Initialize import position for this signal (vlist type will be set later)
     g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
+    g_test_message("Initialized import position for symbol %s: 0", var_id);
 
 }
 
@@ -3203,13 +3224,20 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     // Detect streaming mode (no $enddefinitions but header is complete)
     g_test_message("Checking streaming mode: header_over=%d, time_scale=%" GW_TIME_FORMAT ", numfacs=%u, current_scope=%p", 
                    self->header_over, self->time_scale, self->numfacs, gw_tree_builder_get_current_scope(self->tree_builder));
-    if (!self->is_streaming_mode && self->header_over) {
+    if (!self->is_streaming_mode) {
         // Check if we have all components of a complete header
         if (self->time_scale != 0 && self->numfacs > 0 && 
             gw_tree_builder_get_current_scope(self->tree_builder) == NULL) {
             self->is_streaming_mode = TRUE;
             g_test_message("Detected streaming mode - enabling state preservation");
+            // Initialize for streaming mode
+            _gw_vcd_partial_loader_initialize_streaming_mode(self);
         }
+    }
+
+    // Handle streaming mode initialization when $enddefinitions is not present
+    if (!self->is_fully_initialized && self->is_streaming_mode) {
+        _gw_vcd_partial_loader_initialize_streaming_mode(self);
     }
 
 
@@ -3221,11 +3249,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     
     // Check if initialization is complete
     if (!self->is_fully_initialized) {
-        // Try to initialize in streaming mode if we have enough information
-        _gw_vcd_partial_loader_initialize_streaming_mode(self);
-        if (!self->is_fully_initialized) {
-            return NULL; // Can't get a file until initialization is complete
-        }
+        return NULL; // Can't get a file until initialization is complete
     }
 
     // Get the facs from the existing dump file
@@ -3241,125 +3265,156 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         const gchar *symbol_id = (const gchar *)key;
         GwVlistWriter *writer = (GwVlistWriter *)value;
 
-        // Find the corresponding vcdsymbol
-        struct vcdsymbol *vcd_sym = NULL;
-        struct vcdsymbol *curr = self->vcdsymroot;
-        while (curr != NULL) {
-            if (g_strcmp0(curr->id, symbol_id) == 0) {
-                vcd_sym = curr;
-                break;
-            }
-            curr = curr->next;
+        // Get symbol properties from stored hash table
+        GwVcdSymbolProperties *props = g_hash_table_lookup(self->vlist_symbol_properties, symbol_id);
+        if (props == NULL) {
+            g_test_message("JIT IMPORT: No properties found for symbol %s", symbol_id);
+            continue; // Skip if properties not found
         }
+        g_test_message("JIT IMPORT: Found properties for symbol %s: vartype=%d, size=%d", symbol_id, props->vartype, props->size);
 
-        if (vcd_sym && vcd_sym->narray[0]) {
-            // Find the corresponding GwSymbol in the facs
-            GwSymbol *fac_symbol = NULL;
-            for (guint i = 0; i < gw_facs_get_length(facs); i++) {
-                GwSymbol *fac = gw_facs_get(facs, i);
-                if (fac->vec_root == (GwSymbol *)vcd_sym) {
+        // Find the corresponding GwSymbol in the facs using the symbol_id
+        GwSymbol *fac_symbol = NULL;
+        g_test_message("JIT IMPORT: Looking for symbol %s in facs (length=%u)", symbol_id, gw_facs_get_length(facs));
+        for (guint i = 0; i < gw_facs_get_length(facs); i++) {
+            GwSymbol *fac = gw_facs_get(facs, i);
+            // Check if this symbol has the matching identifier
+            if (fac->vec_root && ((struct vcdsymbol *)fac->vec_root)->id) {
+                const gchar *fac_id = ((struct vcdsymbol *)fac->vec_root)->id;
+                g_test_message("JIT IMPORT: Checking facs[%u]: %s (id: %s)", i, fac->name ? fac->name : "NULL", fac_id);
+                if (g_strcmp0(fac_id, symbol_id) == 0) {
                     fac_symbol = fac;
+                    g_test_message("JIT IMPORT: Found matching symbol %s", symbol_id);
                     break;
                 }
+            } else {
+                g_test_message("JIT IMPORT: facs[%u] has no vec_root or id", i);
             }
+        }
+        if (fac_symbol == NULL) {
+            g_test_message("JIT IMPORT: Symbol %s not found in facs", symbol_id);
+        }
 
-            if (fac_symbol && fac_symbol->n) {
-                GwNode *node = fac_symbol->n;
+        if (fac_symbol && fac_symbol->n) {
+            GwNode *node = fac_symbol->n;
+            
+            // Get the current import position and vlist type for this signal
+            gpointer import_pos_ptr = g_hash_table_lookup(self->vlist_import_positions, symbol_id);
+            if (import_pos_ptr == NULL) {
+                g_test_message("JIT IMPORT: No import position found for symbol %s", symbol_id);
+                continue;
+            }
+            guint64 combined_value = GPOINTER_TO_UINT(import_pos_ptr);
+            gsize last_pos = combined_value & 0xFFFFFFFF;
+            guint32 vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
+            g_test_message("JIT IMPORT: Symbol %s, last_pos=%zu, vlist_type=%u (0x%x)", symbol_id, last_pos, vlist_type, vlist_type);
+            GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
+            
+            // If new data has been written, process it
+            if (vlist && vlist->size > last_pos) {
+                g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist->size);
                 
-                // Get the current import position for this signal
-                gsize last_pos = GPOINTER_TO_UINT(g_hash_table_lookup(self->vlist_import_positions, symbol_id));
-                GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
+                GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
+                gw_vlist_reader_set_position(reader, last_pos);
                 
-                // If new data has been written, process it
-                if (vlist && vlist->size > last_pos) {
-                    g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist->size);
-                    
-                    GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
-                    gw_vlist_reader_set_position(reader, last_pos);
-                    
-                    // The node already has the t=-2 and t=-1 placeholders created in _vcd_partial_handle_var
-                    // We need to start importing from the first vlist transition (which should be at time=0)
-                    // So we set current_time to -1 (the time of the last placeholder)
-                    GwTime current_time = -1;
-                    guint32 vlist_type = 0;
-                    
-                    // Process header if this is the first read
-                    if (last_pos == 0 && vlist->size >= 1) {
-                        vlist_type = gw_vlist_reader_read_uv32(reader);
-                        if (vlist_type == '0') {
-                            gw_vlist_reader_read_uv32(reader); // Skip vartype
-                        } else {
-                            gw_vlist_reader_read_uv32(reader); // Skip vartype
-                            gw_vlist_reader_read_uv32(reader); // Skip size
-                        }
-                    }
-
-                    // Process value changes
+                // The node already has the t=-2 and t=-1 placeholders created in _vcd_partial_handle_var
+                // We need to start importing from the first vlist transition (which should be at time=0)
+                // So we set current_time to -1 (the time of the last placeholder)
+                GwTime current_time = -1;
+                
+                // Process header if this is the first read
+                if (last_pos == 0 && vlist->size >= 1) {
+                    vlist_type = gw_vlist_reader_read_uv32(reader);
+                    g_test_message("JIT IMPORT: First read, vlist_type=%u (0x%x)", vlist_type, vlist_type);
                     if (vlist_type == '0') {
-                        // Scalar value processing
-                        static const GwBit EXTRA_VALUES[] = { GW_BIT_X, GW_BIT_Z, GW_BIT_H, GW_BIT_U, GW_BIT_W, GW_BIT_L, GW_BIT_DASH, GW_BIT_X };
-                        while (!gw_vlist_reader_is_done(reader)) {
-                            guint32 accum = gw_vlist_reader_read_uv32(reader);
-                            GwBit bit;
-                            guint32 time_delta;
-                            
-                            if (!(accum & 1)) {
-                                time_delta = accum >> 2;
-                                bit = accum & 2 ? GW_BIT_1 : GW_BIT_0;
-                            } else {
-                                time_delta = accum >> 4;
-                                guint index = (accum >> 1) & 7;
-                                bit = EXTRA_VALUES[index];
-                            }
-                            
-                            current_time += time_delta;
-                            
-                            GwHistEnt *hent = g_new0(GwHistEnt, 1);
-                            hent->time = current_time;
-                            hent->v.h_val = bit;
-                            
-                            // The node already has t=-2 and t=-1 placeholders, so we need to
-                            // insert after the current last entry (which is at t=-1)
-                            node->curr->next = hent;
-                            node->curr = hent;
-                            node->numhist++; // Increment numhist for each new transition
-                        }
+                        gw_vlist_reader_read_uv32(reader); // Skip vartype
                     } else {
-                        // Vector/Real/String value processing
-                        while (!gw_vlist_reader_is_done(reader)) {
-                            guint32 time_delta = gw_vlist_reader_read_uv32(reader);
-                            const gchar *value_str = gw_vlist_reader_read_string(reader);
-                            
-                            current_time += time_delta;
-                            
-                            GwHistEnt *hent = g_new0(GwHistEnt, 1);
-                            hent->time = current_time;
-                            
-                            if (vcd_sym->vartype == V_REAL) {
-                                hent->flags = GW_HIST_ENT_FLAG_REAL;
-                                hent->v.h_double = g_strtod(value_str, NULL);
-                            } else if (vcd_sym->vartype == V_STRINGTYPE) {
-                                hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-                                hent->v.h_vector = g_strdup(value_str);
-                            } else {
-                                gchar *vector = g_malloc(vcd_sym->size);
-                                for (guint i = 0; i < vcd_sym->size; i++) {
-                                    vector[i] = gw_bit_from_char(value_str[i]);
-                                }
-                                hent->v.h_vector = vector;
-                            }
-                            
-                            // The node already has t=-2 and t=-1 placeholders, so we need to
-                            // insert after the current last entry (which is at t=-1)
-                            node->curr->next = hent;
-                            node->curr = hent;
-                            node->numhist++; // Increment numhist for each new transition
-                        }
+                        gw_vlist_reader_read_uv32(reader); // Skip vartype
+                        gw_vlist_reader_read_uv32(reader); // Skip size
                     }
-
-                    g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(vlist->size));
-                    g_object_unref(reader);
+                    // Store the vlist type for future reads
+                    guint64 combined_value = ((guint64)vlist_type << 32) | 0;
+                    g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(combined_value));
+                    g_test_message("Stored vlist type for symbol %s: vlist_type=%u (0x%x), combined_value=%lu", symbol_id, vlist_type, vlist_type, combined_value);
+                } else {
+                    // For subsequent reads, we need to know the vlist type
+                    // It's stored in the upper 32 bits of the import position
+                    vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
+                    g_test_message("JIT IMPORT: Subsequent read, vlist_type=%u (0x%x), combined_value=%lu", vlist_type, vlist_type, combined_value);
                 }
+
+                // Process value changes
+                g_test_message("JIT IMPORT: About to process values for %s, vlist_type=%u (0x%x), comparing to '0'=%u", symbol_id, vlist_type, vlist_type, '0');
+                if (vlist_type == '0') {
+                    // Scalar value processing
+                    g_test_message("JIT IMPORT: Processing scalar values for %s", symbol_id);
+                    static const GwBit EXTRA_VALUES[] = { GW_BIT_X, GW_BIT_Z, GW_BIT_H, GW_BIT_U, GW_BIT_W, GW_BIT_L, GW_BIT_DASH, GW_BIT_X };
+                    while (!gw_vlist_reader_is_done(reader)) {
+                        guint32 accum = gw_vlist_reader_read_uv32(reader);
+                        GwBit bit;
+                        guint32 time_delta;
+                        
+                        if (!(accum & 1)) {
+                            time_delta = accum >> 2;
+                            bit = accum & 2 ? GW_BIT_1 : GW_BIT_0;
+                        } else {
+                            time_delta = accum >> 4;
+                            guint index = (accum >> 1) & 7;
+                            bit = EXTRA_VALUES[index];
+                        }
+                        
+                        current_time += time_delta;
+                        
+                        GwHistEnt *hent = g_new0(GwHistEnt, 1);
+                        hent->time = current_time;
+                        hent->v.h_val = bit;
+                        
+                        // The node already has t=-2 and t=-1 placeholders, so we need to
+                        // insert after the current last entry (which is at t=-1)
+                        node->curr->next = hent;
+                        node->curr = hent;
+                        node->numhist++; // Increment numhist for each new transition
+                    }
+                } else {
+                    // Vector/Real/String value processing
+                    while (!gw_vlist_reader_is_done(reader)) {
+                        guint32 time_delta = gw_vlist_reader_read_uv32(reader);
+                        const gchar *value_str = gw_vlist_reader_read_string(reader);
+                        
+                        current_time += time_delta;
+                        
+                        GwHistEnt *hent = g_new0(GwHistEnt, 1);
+                        hent->time = current_time;
+                        
+                        if (props->vartype == V_REAL) {
+                            hent->flags = GW_HIST_ENT_FLAG_REAL;
+                            hent->v.h_double = g_strtod(value_str, NULL);
+                        } else if (props->vartype == V_STRINGTYPE) {
+                            hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
+                            hent->v.h_vector = g_strdup(value_str);
+                        } else {
+                            g_test_message("JIT IMPORT: Processing vector value '%s' for symbol %s, size=%d", value_str, symbol_id, props->size);
+                            gchar *vector = g_malloc(props->size);
+                            for (guint i = 0; i < props->size; i++) {
+                                gchar current_char = value_str[i];
+                                g_test_message("JIT IMPORT: Converting char '%c' (0x%02x) to bit at position %d", current_char, current_char, i);
+                                vector[i] = gw_bit_from_char(value_str[i]);
+                            }
+                            hent->v.h_vector = vector;
+                        }
+                        
+                        // The node already has t=-2 and t=-1 placeholders, so we need to
+                        // insert after the current last entry (which is at t=-1)
+                        node->curr->next = hent;
+                        node->curr = hent;
+                        node->numhist++; // Increment numhist for each new transition
+                    }
+                }
+
+                // Store both the import position and vlist type for future reads
+                guint64 combined_value = ((guint64)vlist_type << 32) | vlist->size;
+                g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(combined_value));
+                g_object_unref(reader);
             }
         }
     }

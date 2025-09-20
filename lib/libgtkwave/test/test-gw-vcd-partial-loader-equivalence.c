@@ -99,13 +99,27 @@ static gchar *dump_file_to_string(GwDumpFile *dump_file)
                         
                         if (hent->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
                             if (hent->flags & GW_HIST_ENT_FLAG_STRING) {
-                                if (hent->time < 0) {
+                                if (hent->time == -2) {
+                                    g_string_append_printf(output, "x");
+                                } else if (hent->time == -1) {
                                     g_string_append_printf(output, "?");
                                 } else {
                                     g_string_append_printf(output, "\"%s\"", hent->v.h_vector);
                                 }
                             } else {
-                                g_string_append_printf(output, "%f", hent->v.h_double);
+                                // Special handling for real signals at time=-2
+                                if (hent->time == -2) {
+                                    // Check for the special NaN pattern that should display as 'x'
+                                    union { double d; guint64 u; } val_union;
+                                    val_union.d = hent->v.h_double;
+                                    if (val_union.u == 0x7ff8000000000001ULL) {
+                                        g_string_append_printf(output, "x");
+                                    } else {
+                                        g_string_append_printf(output, "%f", hent->v.h_double);
+                                    }
+                                } else {
+                                    g_string_append_printf(output, "%f", hent->v.h_double);
+                                }
                             }
                         } else if (node->msi == node->lsi) {
                             g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_val));

@@ -2601,7 +2601,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     // Set appropriate decorator values for t=-2 based on signal type
     if (v->vartype == V_REAL) {
         h_minus_2->flags = GW_HIST_ENT_FLAG_REAL;
-        // Use a specific NAN pattern that displays as 'x' instead of 'nan'
+        // For t=-2, use a specific NAN pattern that displays as 'x' instead of 'nan'
         // Create a quiet NAN with a specific payload that gtkwave recognizes as 'x'
         union {
             double d;
@@ -2611,7 +2611,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
         h_minus_2->v.h_double = nan_union.d;
     } else if (v->vartype == V_STRINGTYPE) {
         h_minus_2->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-        h_minus_2->v.h_vector = g_strdup("x"); // Represents 'x'
+        h_minus_2->v.h_vector = g_strdup("x"); // Represents 'x' for t=-2
     } else {
         h_minus_2->v.h_val = GW_BIT_X; // Represents 'x' for scalars and vectors
     }
@@ -2619,6 +2619,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     // Set appropriate decorator values for t=-1 based on signal type
     if (v->vartype == V_REAL) {
         h_minus_1->flags = GW_HIST_ENT_FLAG_REAL;
+        // For t=-1, use a regular NAN that displays as 'nan'
         // Use union to avoid strict-aliasing warning
         union {
             double d;
@@ -2630,7 +2631,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
         h_minus_1->v.h_double = nan_union.d;
     } else if (v->vartype == V_STRINGTYPE) {
         h_minus_1->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-        h_minus_1->v.h_vector = g_strdup("?"); // Represents '?'
+        h_minus_1->v.h_vector = g_strdup("?"); // Represents '?' for t=-1
     } else {
         h_minus_1->v.h_val = GW_BIT_X; // Represents 'x' for scalars and vectors
     }

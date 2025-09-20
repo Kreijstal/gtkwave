@@ -1,5 +1,6 @@
 #include "gw-vcd-partial-loader.h"
 #include "gw-dump-file.h"
+#include "gw-loader.h"
 
 #include "gw-vcd-file.h"
 #include "gw-vcd-file-private.h"
@@ -144,7 +145,7 @@ struct _GwVcdPartialLoader
     guint warning_filesize;
 };
 
-G_DEFINE_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, G_TYPE_OBJECT)
+G_DEFINE_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW_TYPE_LOADER)
 
 
 
@@ -165,7 +166,6 @@ static void malform_eof_fix(GwVcdPartialLoader *self)
 #undef VCD_BSEARCH_IS_PERFECT /* bsearch is imperfect under linux, but OK under AIX */
 
 static void vcd_partial_build_symbols(GwVcdPartialLoader *self);
-static void vcd_partial_cleanup(GwVcdPartialLoader *self);
 static void evcd_strcpy(char *dst, char *src);
 
 // TODO: remove local copy of atoi_64
@@ -1817,101 +1817,7 @@ static void vcd_partial_parse_string(GwVcdPartialLoader *self)
     }
 }
 
-static void vcd_partial_parse(GwVcdPartialLoader *self, GError **error)
-{
-    g_assert(error != NULL && *error == NULL);
 
-    while (*error == NULL) {
-        switch (get_token(self)) {
-            case T_COMMENT:
-                sync_end(self);
-                break;
-
-            case T_DATE:
-                sync_end(self);
-                break;
-
-            case T_VERSION:
-                version_sync_end(self);
-                break;
-
-            case T_TIMEZERO:
-                vcd_partial_parse_timezero(self);
-                break;
-
-            case T_TIMESCALE:
-                vcd_partial_parse_timescale(self);
-                break;
-
-            case T_SCOPE:
-                vcd_partial_parse_scope(self);
-                break;
-
-            case T_UPSCOPE:
-                vcd_partial_parse_upscope(self);
-                break;
-
-            case T_VAR:
-                vcd_partial_parse_var(self);
-                break;
-
-            case T_ENDDEFINITIONS:
-                vcd_partial_parse_enddefinitions(self, error);
-                break;
-
-            case T_STRING:
-                vcd_partial_parse_string(self);
-                break;
-
-            case T_DUMPALL: /* dump commands modify vals anyway so */
-            case T_DUMPPORTSALL:
-                break; /* just loop through..                 */
-
-            case T_DUMPOFF:
-            case T_DUMPPORTSOFF:
-                gw_blackout_regions_add_dumpoff(self->blackout_regions, self->current_time);
-                break;
-
-            case T_DUMPON:
-            case T_DUMPPORTSON:
-                gw_blackout_regions_add_dumpon(self->blackout_regions, self->current_time);
-                break;
-
-            case T_DUMPVARS:
-            case T_DUMPPORTS:
-                if (self->current_time < 0) {
-                    self->start_time = self->current_time = self->end_time = 0;
-                }
-                break;
-
-            case T_VCDCLOSE:
-                sync_end(self);
-                break; /* next token will be '#' time related followed by $end */
-
-            case T_END: /* either closure for dump commands or */
-                break; /* it's spurious                       */
-
-            case T_UNKNOWN_KEY:
-                sync_end(self);
-                break;
-
-            case T_EOF:
-                gw_blackout_regions_add_dumpon(self->blackout_regions, self->current_time);
-
-                self->pv = NULL;
-                if (self->prev_hier_uncompressed_name) {
-                    g_free(self->prev_hier_uncompressed_name);
-                    self->prev_hier_uncompressed_name = NULL;
-                }
-
-                return;
-
-            default: {
-                // DEBUG(fprintf(stderr, "UNKNOWN TOKEN\n"));
-            }
-        }
-    }
-}
 
 /*******************************************************************************/
 
@@ -1928,236 +1834,188 @@ static GwSymbol *symfind_unsorted(GwVcdPartialLoader *self, char *s)
     return NULL; /* not found, add here if you want to add*/
 }
 
+static void treenamefix_str(char *s, char delimiter)
+{
+    while (*s) {
+        if (*s == VCD_HIERARCHY_DELIMITER)
+            *s = delimiter;
+        s++;
+    }
+}
+
 static void vcd_partial_build_symbols(GwVcdPartialLoader *self)
 {
-    int j;
     int max_slen = -1;
     GSList *sym_chain = NULL;
     int duphier = 0;
     char hashdirty;
     struct vcdsymbol *v, *vprime;
     char *str = g_alloca(1); /* quiet scan-build null pointer warning below */
-    // #ifdef _WAVE_HAVE_JUDY
-    //     int ss_len, longest = 0;
-    // #endif
 
     gchar delimiter = gw_loader_get_hierarchy_delimiter(GW_LOADER(self));
 
+    // Convert all symbol names from VCD_HIERARCHY_DELIMITER to normal delimiter
+    for (GSList *iter = self->sym_chain; iter != NULL; iter = iter->next) {
+        GwSymbol *s = iter->data;
+        treenamefix_str(s->name, delimiter);
+        if (s->n && s->n->nname) {
+            treenamefix_str(s->n->nname, delimiter);
+        }
+    }
+
     v = self->vcdsymroot;
     while (v) {
-        int msi;
-        int delta;
+        int substnode = 0;
 
+        int slen = strlen(v->name);
+        str = (slen > max_slen) ? (g_alloca((max_slen = slen) + 32))
+                                : (str); /* more than enough */
+        strcpy(str, v->name);
+
+        if ((v->msi >= 0) || (v->msi != v->lsi)) {
+            str[slen] = delimiter;
+            slen++;
+        }
+
+        if ((vprime = bsearch_vcd(self, v->id, strlen(v->id))) !=
+            v && vprime != NULL) /* hash mish means dup net */
         {
-            int slen;
-            int substnode;
+            if (v->size != vprime->size) {
+                fprintf(stderr,
+                        "ERROR: Duplicate IDs with differing width: %s %s\n",
+                        v->name,
+                        vprime->name);
+            } else {
+                substnode = 1;
+            }
+        }
 
-            msi = v->msi;
-            delta = ((v->lsi - v->msi) < 0) ? -1 : 1;
-            substnode = 0;
+        // Get the existing GwSymbol that was created during initial parsing
+        GwSymbol *s = v->sym_chain;
+        if (!s) {
+            v = v->next;
+            continue; // Should not happen if everything is wired correctly
+        }
 
-            slen = strlen(v->name);
-            str = (slen > max_slen) ? (g_alloca((max_slen = slen) + 32))
-                                    : (str); /* more than enough */
-            strcpy(str, v->name);
-
-            if ((v->msi >= 0) || (v->msi != v->lsi)) {
-                str[slen] = delimiter;
-                slen++;
+        if ((v->size == 1) && (v->vartype != V_REAL) && (v->vartype != V_STRINGTYPE)) {
+            if (v->msi >= 0) {
+                sprintf(str + slen - 1, "[%d]", v->msi);
             }
 
-            if ((vprime = bsearch_vcd(self, v->id, strlen(v->id))) !=
-                v) /* hash mish means dup net */
+            // Update the symbol name with array notation if needed
+            if (strcmp(s->name, str) != 0) {
+                g_free(s->name);
+                s->name = g_strdup(str);
+                if (s->n && s->n->nname) {
+                    g_free(s->n->nname);
+                    s->n->nname = g_strdup(str);
+                }
+            }
+
+            hashdirty = 0;
+            if (symfind_unsorted(self, str)) {
+                char *dupfix = g_malloc(max_slen + 32);
+                hashdirty = 1;
+
+                do {
+                    sprintf(dupfix, "$DUP%d%c%s", duphier++, delimiter, str);
+                } while (symfind_unsorted(self, dupfix));
+
+                strcpy(str, dupfix);
+                g_free(dupfix);
+                duphier = 0; /* reset for next duplicate resolution */
+            }
+
+            if (hashdirty) {
+                self->hash_cache = gw_hash(str);
+            }
+
+            g_debug("Single-bit symbol name: %s (tree builder: %p, v->name: %s, msi: %d)", s->name, self->tree_builder, v->name, v->msi);
+
+            if (substnode) {
+                GwNode *n;
+                GwNode *n2;
+
+                n = s->n;
+                n2 = vprime->narray[0];
+                n->curr = (GwHistEnt *)n2;
+                n->numhist = n2->numhist;
+            }
+
+            g_debug("Updated single-bit symbol: %s", str);
+
+            if (v->root) {
+                s->vec_root = (GwSymbol *)v->root; /* these will get patched over */
+                s->vec_chain = (GwSymbol *)v->chain; /* these will get patched over */
+                v->sym_chain = s;
+
+                sym_chain = g_slist_prepend(sym_chain, s);
+            }
+        } else /* atomic vector */
+        {
+            if ((v->vartype != V_REAL) && (v->vartype != V_STRINGTYPE) &&
+                (v->vartype != V_INTEGER) && (v->vartype != V_PARAMETER))
             {
-                if (v->size != vprime->size) {
-                    fprintf(stderr,
-                            "ERROR: Duplicate IDs with differing width: %s %s\n",
-                            v->name,
-                            vprime->name);
-                } else {
-                    substnode = 1;
+                sprintf(str + slen - 1, "[%d:%d]", v->msi, v->lsi);
+                /* 2d add */
+                if ((v->msi > v->lsi) && ((v->msi - v->lsi + 1) != v->size)) {
+                    if ((v->vartype != V_EVENT) && (v->vartype != V_PARAMETER)) {
+                        v->msi = v->size - 1;
+                        v->lsi = 0;
+                    }
+                } else if ((v->lsi >= v->msi) && ((v->lsi - v->msi + 1) != v->size)) {
+                    if ((v->vartype != V_EVENT) && (v->vartype != V_PARAMETER)) {
+                        v->lsi = v->size - 1;
+                        v->msi = 0;
+                    }
                 }
+            } else {
+                *(str + slen - 1) = 0;
             }
 
-            if ((v->size == 1) && (v->vartype != V_REAL) && (v->vartype != V_STRINGTYPE)) {
-                GwSymbol *s = NULL;
+            hashdirty = 0;
+            if (symfind_unsorted(self, str)) {
+                char *dupfix = g_malloc(max_slen + 32);
+                hashdirty = 1;
 
-                for (j = 0; j < v->size; j++) {
-                    if (v->msi >= 0) {
-                        sprintf(str + slen - 1, "[%d]", msi);
-                    }
+                do {
+                    sprintf(dupfix, "$DUP%d%c%s", duphier++, delimiter, str);
+                } while (symfind_unsorted(self, dupfix));
 
-                    hashdirty = 0;
-                    if (symfind_unsorted(self, str)) {
-                        char *dupfix = g_malloc(max_slen + 32);
-                        // #ifndef _WAVE_HAVE_JUDY
-                        hashdirty = 1;
-                        // #endif
-                        // DEBUG(fprintf(stderr, "Warning: %s is a duplicate net name.\n", str));
-
-                        do {
-                            sprintf(dupfix, "$DUP%d%c%s", duphier++, delimiter, str);
-                        } while (symfind_unsorted(self, dupfix));
-
-                        strcpy(str, dupfix);
-                        g_free(dupfix);
-                        duphier = 0; /* reset for next duplicate resolution */
-                    }
-                    /* fallthrough */
-                    {
-                        if (hashdirty) {
-                            self->hash_cache = gw_hash(str);
-                        }
-                        s = symadd(self, str, self->hash_cache);
-
-                        // #ifdef _WAVE_HAVE_JUDY
-                        //                         ss_len = strlen(str);
-                        //                         if (ss_len >= longest) {
-                        //                             longest = ss_len + 1;
-                        //                         }
-                        // #endif
-                        s->n = v->narray[j];
-                        if (substnode) {
-                            GwNode *n;
-                            GwNode *n2;
-
-                            n = s->n;
-                            n2 = vprime->narray[j];
-                            /* nname stays same */
-                            /* n->head=n2->head; */
-                            /* n->curr=n2->curr; */
-                            n->curr = (GwHistEnt *)n2;
-                            /* harray calculated later */
-                            n->numhist = n2->numhist;
-                        }
-
-                        // #ifndef _WAVE_HAVE_JUDY
-                        s->n->nname = s->name;
-                        // #endif
-                        self->sym_chain = g_slist_prepend(self->sym_chain, s);
-
-                        self->numfacs++;
-                        // DEBUG(fprintf(stderr, "Added: %s\n", str));
-                    }
-                    msi += delta;
-                }
-
-                if ((j == 1) && (v->root)) {
-                    s->vec_root = (GwSymbol *)v->root; /* these will get patched over */
-                    s->vec_chain = (GwSymbol *)v->chain; /* these will get patched over */
-                    v->sym_chain = s;
-
-                    sym_chain = g_slist_prepend(sym_chain, s);
-                }
-            } else /* atomic vector */
-            {
-                if ((v->vartype != V_REAL) && (v->vartype != V_STRINGTYPE) &&
-                    (v->vartype != V_INTEGER) && (v->vartype != V_PARAMETER))
-                /* if((v->vartype!=V_REAL)&&(v->vartype!=V_STRINGTYPE)) */
-                {
-                    sprintf(str + slen - 1, "[%d:%d]", v->msi, v->lsi);
-                    /* 2d add */
-                    if ((v->msi > v->lsi) && ((v->msi - v->lsi + 1) != v->size)) {
-                        if ((v->vartype != V_EVENT) && (v->vartype != V_PARAMETER)) {
-                            v->msi = v->size - 1;
-                            v->lsi = 0;
-                        }
-                    } else if ((v->lsi >= v->msi) && ((v->lsi - v->msi + 1) != v->size)) {
-                        if ((v->vartype != V_EVENT) && (v->vartype != V_PARAMETER)) {
-                            v->lsi = v->size - 1;
-                            v->msi = 0;
-                        }
-                    }
-                } else {
-                    *(str + slen - 1) = 0;
-                }
-
-                hashdirty = 0;
-                if (symfind_unsorted(self, str)) {
-                    char *dupfix = g_malloc(max_slen + 32);
-                    // #ifndef _WAVE_HAVE_JUDY
-                    hashdirty = 1;
-                    // #endif
-                    // DEBUG(fprintf(stderr, "Warning: %s is a duplicate net name.\n", str));
-
-                    do {
-                        sprintf(dupfix, "$DUP%d%c%s", duphier++, delimiter, str);
-
-                    } while (symfind_unsorted(self, dupfix));
-
-                    strcpy(str, dupfix);
-                    g_free(dupfix);
-                    duphier = 0; /* reset for next duplicate resolution */
-                }
-                /* fallthrough */
-                {
-                    /* cut down on double lookups.. */
-                    if (hashdirty) {
-                        self->hash_cache = gw_hash(str);
-                    }
-                    GwSymbol *s = symadd(self, str, self->hash_cache);
-
-                    // #ifdef _WAVE_HAVE_JUDY
-                    //                     ss_len = strlen(str);
-                    //                     if (ss_len >= longest) {
-                    //                         longest = ss_len + 1;
-                    //                     }
-                    // #endif
-                    s->n = v->narray[0];
-                    if (substnode) {
-                        GwNode *n;
-                        GwNode *n2;
-
-                        n = s->n;
-                        n2 = vprime->narray[0];
-                        /* nname stays same */
-                        /* n->head=n2->head; */
-                        /* n->curr=n2->curr; */
-                        n->curr = (GwHistEnt *)n2;
-                        /* harray calculated later */
-                        n->numhist = n2->numhist;
-                        n->extvals = n2->extvals;
-                        n->msi = n2->msi;
-                        n->lsi = n2->lsi;
-                    } else {
-                        s->n->msi = v->msi;
-                        s->n->lsi = v->lsi;
-
-                        s->n->extvals = 1;
-                    }
-
-                    // #ifndef _WAVE_HAVE_JUDY
-                    s->n->nname = s->name;
-                    // #endif
-                    self->sym_chain = g_slist_prepend(self->sym_chain, s);
-
-                    self->numfacs++;
-                    // DEBUG(fprintf(stderr, "Added: %s\n", str));
-                }
+                strcpy(str, dupfix);
+                g_free(dupfix);
+                duphier = 0; /* reset for next duplicate resolution */
             }
+
+            if (hashdirty) {
+                self->hash_cache = gw_hash(str);
+            }
+
+            // Name was already set correctly during parsing, just update debug
+            g_debug("Vector symbol name: %s (tree builder: %p, v->name: %s, msi: %d, lsi: %d)", s->name, self->tree_builder, v->name, v->msi, v->lsi);
+
+            if (substnode) {
+                GwNode *n;
+                GwNode *n2;
+
+                n = s->n;
+                n2 = vprime->narray[0];
+                n->curr = (GwHistEnt *)n2;
+                n->numhist = n2->numhist;
+                n->extvals = n2->extvals;
+                n->msi = n2->msi;
+                n->lsi = n2->lsi;
+            } else {
+                s->n->msi = v->msi;
+                s->n->lsi = v->lsi;
+                s->n->extvals = 1;
+            }
+
+            g_debug("Updated vector symbol: %s", str);
         }
 
         v = v->next;
     }
-
-    // TODO: reenable judy support
-    // #ifdef _WAVE_HAVE_JUDY
-    //     {
-    //         Pvoid_t PJArray = GLOBALS->sym_judy;
-    //         PPvoid_t PPValue;
-    //         char *Index = calloc_2(1, longest);
-    //
-    //         for (PPValue = JudySLFirst(PJArray, (uint8_t *)Index, PJE0); PPValue !=
-    //         (PPvoid_t)NULL;
-    //              PPValue = JudySLNext(PJArray, (uint8_t *)Index, PJE0)) {
-    //             GwSymbol *s = *(GwSymbol **)PPValue;
-    //             s->name = strdup_2(Index);
-    //             s->n->nname = s->name;
-    //         }
-    //
-    //         free_2(Index);
-    //     }
-    // #endif
 
     if (sym_chain != NULL) {
         for (GSList *iter = sym_chain; iter != NULL; iter = iter->next) {
@@ -2167,11 +2025,6 @@ static void vcd_partial_build_symbols(GwVcdPartialLoader *self)
             if ((struct vcdsymbol *)s->vec_chain != NULL) {
                 s->vec_chain = ((struct vcdsymbol *)s->vec_chain)->sym_chain;
             }
-
-            // DEBUG(printf("Link: ('%s') '%s' -> '%s'\n",
-            //              sym_curr->val->vec_root->name,
-            //              sym_curr->val->name,
-            //              sym_curr->val->vec_chain ? sym_curr->val->vec_chain->name : "(END)"));
         }
 
         g_slist_free(sym_chain);
@@ -2180,36 +2033,7 @@ static void vcd_partial_build_symbols(GwVcdPartialLoader *self)
 
 /*******************************************************************************/
 
-static void vcd_partial_cleanup(GwVcdPartialLoader *self)
-{
-    struct vcdsymbol *v, *vt;
 
-    g_clear_pointer(&self->symbols_indexed, g_free);
-    g_clear_pointer(&self->symbols_sorted, g_free);
-
-    v = self->vcdsymroot;
-    while (v) {
-        g_free(v->name);
-        g_free(v->id);
-        g_free(v->narray);
-        vt = v;
-        v = v->next;
-        g_free(vt);
-    }
-    self->vcdsymroot = NULL;
-    self->vcdsymcurr = NULL;
-
-    g_clear_object(&self->tree_builder);
-
-    if (self->is_compressed) {
-        pclose(self->vcd_handle);
-    } else {
-        fclose(self->vcd_handle);
-    }
-    self->vcd_handle = NULL;
-
-    g_clear_pointer(&self->yytext, g_free);
-}
 
 static GwFacs *vcd_sortfacs(GwVcdPartialLoader *self)
 {
@@ -2373,17 +2197,7 @@ static void build_tree_from_name(GwVcdPartialLoader *self,
     }
 }
 
-/*
- * unswizzle extended names in tree
- */
-static void treenamefix_str(char *s, char delimiter)
-{
-    while (*s) {
-        if (*s == VCD_HIERARCHY_DELIMITER)
-            *s = delimiter;
-        s++;
-    }
-}
+
 
 static void treenamefix(GwTreeNode *t, char delimiter)
 {
@@ -2408,7 +2222,7 @@ static GwTree *vcd_build_tree(GwVcdPartialLoader *self, GwFacs *facs)
     // TODO: replace module_tree by GString to dynamically allocate enough memory
     self->module_tree = g_malloc0(65536);
 
-    gchar delimiter = gw_loader_get_hierarchy_delimiter(GW_LOADER(self));
+    gchar delimiter = VCD_HIERARCHY_DELIMITER;
 
     for (guint i = 0; i < gw_facs_get_length(facs); i++) {
         GwSymbol *fac = gw_facs_get(facs, i);
@@ -2452,17 +2266,24 @@ static void gw_vcd_partial_loader_finalize(GObject *object)
     G_OBJECT_CLASS(gw_vcd_partial_loader_parent_class)->finalize(object);
 }
 
-
-
-
-
-
+static GwDumpFile *
+gw_vcd_partial_loader_load(GwLoader *loader G_GNUC_UNUSED, const gchar *fname G_GNUC_UNUSED, GError **error)
+{
+    // This loader is for streams only. Using it for direct file loading is an error.
+    g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                "GwVcdPartialLoader does not support direct file loading. Use the feed() API instead.");
+    return NULL;
+}
 
 static void gw_vcd_partial_loader_class_init(GwVcdPartialLoaderClass *klass)
 {
     GObjectClass *object_class = G_OBJECT_CLASS(klass);
+    GwLoaderClass *loader_class = GW_LOADER_CLASS(klass);
 
     object_class->finalize = gw_vcd_partial_loader_finalize;
+
+    // Assign our (non-functional) load function to the class vtable.
+    loader_class->load = gw_vcd_partial_loader_load;
 }
 
 static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
@@ -2543,6 +2364,7 @@ static void process_vcd_token(GwVcdPartialLoader *self, const gchar *token, gsiz
     if (g_str_has_prefix(trimmed_token, "$timescale")) {
         _vcd_partial_handle_timescale(self, trimmed_token, trimmed_len, error);
     } else if (g_str_has_prefix(trimmed_token, "$scope")) {
+        g_debug("Processing scope command: %.*s", (int)trimmed_len, trimmed_token);
         _vcd_partial_handle_scope(self, trimmed_token, trimmed_len, error);
     } else if (g_str_has_prefix(trimmed_token, "$var")) {
         _vcd_partial_handle_var(self, trimmed_token, trimmed_len, error);
@@ -2675,6 +2497,8 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
         return;
     }
 
+    g_debug("Parsing scope: type='%s', name='%s'", scope_type, scope_name);
+
     // Map scope type to tree kind
     unsigned char ttype = GW_TREE_KIND_UNKNOWN;
 
@@ -2736,7 +2560,13 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
     }
 
     // Push the scope to the tree builder
+    g_debug("Pushing scope: %s (type: %d, tree builder: %p)", scope_name, ttype, self->tree_builder);
     GwTreeNode *scope = gw_tree_builder_push_scope(self->tree_builder, ttype, scope_name);
+    if (scope) {
+        g_debug("Scope pushed successfully: %p", scope);
+    } else {
+        g_debug("Failed to push scope");
+    }
     if (scope) {
         scope->t_which = -1;
 
@@ -2744,6 +2574,15 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
         g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
                    "Failed to parse scope: %.*s", (int)len, token);
     }
+}
+
+static void _vcd_partial_handle_upscope(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error)
+{
+    g_assert(token != NULL);
+    g_assert(error != NULL && *error == NULL);
+
+    g_debug("Popping scope (tree builder: %p)", self->tree_builder);
+    gw_tree_builder_pop_scope(self->tree_builder);
 }
 
 static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error)
@@ -2829,7 +2668,15 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     v->msi = var_size - 1;
     v->lsi = 0;
     v->id = g_strdup(var_id);
-    v->name = g_strdup(var_name);
+
+    // Generate the full hierarchical name NOW, while the tree_builder scope is correct.
+    if ((vartype != V_REAL) && (vartype != V_STRINGTYPE) && (vartype != V_INTEGER) && var_size > 1) {
+        v->name = gw_tree_builder_get_symbol_name_with_two_indices(self->tree_builder, var_name, v->msi, v->lsi);
+    } else if (var_size == 1) {
+        v->name = gw_tree_builder_get_symbol_name_with_one_index(self->tree_builder, var_name, v->msi);
+    } else {
+        v->name = gw_tree_builder_get_symbol_name(self->tree_builder, var_name);
+    }
 
     // Add to symbol list
     if (self->vcdsymroot == NULL) {
@@ -2845,12 +2692,16 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     v->narray[0] = g_new0(GwNode, 1);
     v->narray[0]->head.time = -2;
     v->narray[0]->head.v.h_val = GW_BIT_X;
+    v->narray[0]->nname = g_strdup(v->name); // The node also needs the full name
 
     // Create symbol for the signal
     GwSymbol *symbol = g_new0(GwSymbol, 1);
-    symbol->name = g_strdup(var_name);
+    symbol->name = g_strdup(v->name);
     symbol->n = v->narray[0];
     symbol->vec_root = (GwSymbol *)v;
+
+    // Store the link from vcdsymbol to GwSymbol for later name updates
+    v->sym_chain = symbol;
 
     // Add to symbol chain for later processing
     self->sym_chain = g_slist_append(self->sym_chain, symbol);
@@ -3194,21 +3045,35 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     g_return_val_if_fail(GW_IS_VCD_PARTIAL_LOADER(self), NULL);
 
     /* Build tree and facs from current state */
+    if (self->vcdsymroot == NULL) {
+        return NULL; // No signals defined yet
+    }
+
+    // --- CRITICAL POST-PROCESSING STEPS ---
+    // These steps are essential for creating properly named and searchable symbols
+    
+    g_test_message("get_dump_file called: sym_chain=%p, numfacs=%u", self->sym_chain, self->numfacs);
+    
+    // 0. Create sorted symbol table for duplicate detection
+    create_sorted_table(self);
+    
+    // 1. Build full hierarchical names and create GwSymbol objects
+    // This creates the sym_chain with properly named symbols
+    vcd_partial_build_symbols(self);
+    
     if (self->sym_chain == NULL || self->numfacs == 0) {
         return NULL; // No signals defined yet
     }
 
-    // Build tree from current tree builder state
-    GwTreeNode *tree_node = self->tree_builder ? gw_tree_builder_build(self->tree_builder) : NULL;
-    GwTree *tree = tree_node ? gw_tree_new(tree_node) : NULL;
+    // 2. Create and sort facs alphabetically by full signal names
+    g_test_message("Before vcd_sortfacs: sym_chain=%p, numfacs=%u", self->sym_chain, self->numfacs);
+    GwFacs *facs = vcd_sortfacs(self);
+    g_test_message("After vcd_sortfacs: sym_chain=%p, numfacs=%u", self->sym_chain, self->numfacs);
 
-    // Create facs from symbol chain
-    GwFacs *facs = gw_facs_new(self->numfacs);
-    guint index = 0;
-    for (GSList *iter = self->sym_chain; iter != NULL; iter = iter->next) {
-        GwSymbol *symbol = (GwSymbol *)iter->data;
-        gw_facs_set(facs, index++, symbol);
-    }
+    // 3. Build the hierarchy tree from sorted facs
+    g_test_message("Before vcd_build_tree: facs length=%u", gw_facs_get_length(facs));
+    GwTree *tree = vcd_build_tree(self, facs);
+    g_test_message("After vcd_build_tree");
 
     // Perform Just-in-Time Partial Import for each signal
     GHashTableIter iter;
@@ -3324,36 +3189,22 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         return NULL;
     }
 
-    // Create dump file with all required properties during construction
-    if (self->dump_file == NULL) {
-        g_debug("Creating dump file with time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
-                self->time_scale, self->time_dimension);
-        self->dump_file = g_object_new(GW_TYPE_VCD_FILE,
-                                      "time-scale", self->time_scale,
-                                      "time-dimension", self->time_dimension,
-                                      "tree", tree,
-                                      "facs", facs,
-                                      NULL);
-        g_debug("Dump file created successfully: %p", self->dump_file);
-
-        // The object takes ownership, so we don't need to unref tree and facs
-    } else {
-        g_debug("Dump file already exists, time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
-                self->time_scale, self->time_dimension);
-        // Update properties that can be modified after construction
-        self->dump_file->start_time = self->start_time;
-        self->dump_file->end_time = self->end_time;
-        self->dump_file->time_vlist = self->time_vlist;
-        self->dump_file->is_prepacked = self->vlist_prepack;
-
-        // Clean up temporary references since we didn't use them in construction
-        if (tree) {
-            g_object_unref(tree);
-        }
-        if (facs) {
-            g_object_unref(facs);
-        }
+    // Always create a new dump file with the updated tree and facs
+    if (self->dump_file != NULL) {
+        g_object_unref(self->dump_file);
     }
+    
+    g_debug("Creating dump file with time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
+            self->time_scale, self->time_dimension);
+    self->dump_file = g_object_new(GW_TYPE_VCD_FILE,
+                                  "time-scale", self->time_scale,
+                                  "time-dimension", self->time_dimension,
+                                  "tree", tree,
+                                  "facs", facs,
+                                  NULL);
+    g_debug("Dump file created successfully: %p", self->dump_file);
+
+    // The object takes ownership, so we don't need to unref tree and facs
 
     /* Return the single dump file instance that's always kept up to date */
     return GW_DUMP_FILE(self->dump_file);

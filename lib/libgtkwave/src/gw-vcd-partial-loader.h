@@ -6,7 +6,7 @@
 G_BEGIN_DECLS
 
 #define GW_TYPE_VCD_PARTIAL_LOADER (gw_vcd_partial_loader_get_type())
-G_DECLARE_FINAL_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW, VCD_PARTIAL_LOADER, GObject)
+G_DECLARE_FINAL_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW, VCD_PARTIAL_LOADER, GwLoader)
 
 /**
  * gw_vcd_partial_loader_new:
@@ -42,5 +42,7 @@ gboolean gw_vcd_partial_loader_feed(GwVcdPartialLoader *self, const gchar *data,
  * Returns: (transfer none): The live #GwDumpFile, or %NULL if no data has been processed.
  */
 GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self);
+
+
 
 G_END_DECLS

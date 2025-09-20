@@ -293,6 +293,8 @@ static unsigned int vcdid_hash(char *s, int len)
     unsigned int val = 0;
     int i;
 
+    g_test_message("vcdid_hash: input='%s', len=%d", s, len);
+    
     s += (len - 1);
 
     for (i = 0; i < len; i++) {
@@ -301,6 +303,7 @@ static unsigned int vcdid_hash(char *s, int len)
         s--;
     }
 
+    g_test_message("vcdid_hash: result=%u", val);
     return (val);
 }
 
@@ -328,16 +331,22 @@ static struct vcdsymbol *bsearch_vcd(GwVcdPartialLoader *self, char *key, int le
     struct vcdsymbol **v;
     struct vcdsymbol *t;
 
+    g_test_message("bsearch_vcd: Looking for key '%s' (len=%d)", key, len);
+    
     if (self->symbols_indexed != NULL) {
         unsigned int hsh = vcdid_hash(key, len);
+        g_test_message("bsearch_vcd: Using indexed table, hash=%u, minid=%u, maxid=%u", hsh, self->vcd_minid, self->vcd_maxid);
         if (hsh >= self->vcd_minid && hsh <= self->vcd_maxid) {
-            return (self->symbols_indexed[hsh - self->vcd_minid]);
+            struct vcdsymbol *result = self->symbols_indexed[hsh - self->vcd_minid];
+            g_test_message("bsearch_vcd: Indexed result=%p (id=%s)", result, result ? result->id : "NULL");
+            return result;
         }
-
+        g_test_message("bsearch_vcd: Hash %u out of range [%u, %u]", hsh, self->vcd_minid, self->vcd_maxid);
         return NULL;
     }
 
     if (self->symbols_sorted != NULL) {
+        g_test_message("bsearch_vcd: Using sorted table with %u symbols", self->numsyms);
         v = (struct vcdsymbol **)bsearch(key,
                                          self->symbols_sorted,
                                          self->numsyms,
@@ -345,6 +354,7 @@ static struct vcdsymbol *bsearch_vcd(GwVcdPartialLoader *self, char *key, int le
                                          vcdsymbsearchcompare);
 
         if (v) {
+            g_test_message("bsearch_vcd: Sorted result found: %p (id=%s)", *v, (*v)->id);
 #ifndef VCD_BSEARCH_IS_PERFECT
             for (;;) {
                 t = *v;
@@ -357,6 +367,7 @@ static struct vcdsymbol *bsearch_vcd(GwVcdPartialLoader *self, char *key, int le
             return (*v);
 #endif
         } else {
+            g_test_message("bsearch_vcd: No match found in sorted table");
             return (NULL);
         }
     } else {
@@ -366,6 +377,7 @@ static struct vcdsymbol *bsearch_vcd(GwVcdPartialLoader *self, char *key, int le
                     (int)(self->vcdbyteno + (self->vst - self->vcdbuf)));
             self->err = TRUE;
         }
+        g_test_message("bsearch_vcd: No search table available");
         return (NULL);
     }
 }
@@ -397,30 +409,35 @@ static void create_sorted_table(GwVcdPartialLoader *self)
 
     if (self->numsyms > 0) {
         vcd_distance = self->vcd_maxid - self->vcd_minid + 1;
+        g_test_message("create_sorted_table: %u symbols, minid=%u, maxid=%u, distance=%u, hash_kill=%d", 
+                      self->numsyms, self->vcd_minid, self->vcd_maxid, vcd_distance, self->vcd_hash_kill);
 
         if ((vcd_distance <= VCD_INDEXSIZ) || !self->vcd_hash_kill) {
             self->symbols_indexed = g_new0(struct vcdsymbol *, vcd_distance);
-
-            /* printf("%d symbols span ID range of %d, using indexing... hash_kill = %d\n",
-             * self->numsyms, vcd_distance, GLOBALS->vcd_hash_kill);  */
+            g_test_message("Using indexed table with size %u", vcd_distance);
 
             v = self->vcdsymroot;
             while (v) {
+                g_test_message("Indexing symbol: id=%s, nid=%u", v->id, v->nid);
                 if (self->symbols_indexed[v->nid - self->vcd_minid] == NULL) {
                     self->symbols_indexed[v->nid - self->vcd_minid] = v;
                 }
                 v = v->next;
             }
         } else {
+            g_test_message("Using sorted table with %u symbols", self->numsyms);
             pnt = self->symbols_sorted = g_new0(struct vcdsymbol *, self->numsyms);
             v = self->vcdsymroot;
             while (v) {
+                g_test_message("Adding to sorted table: id=%s", v->id);
                 *(pnt++) = v;
                 v = v->next;
             }
 
             qsort(self->symbols_sorted, self->numsyms, sizeof(struct vcdsymbol *), vcdsymcompare);
         }
+    } else {
+        g_test_message("create_sorted_table: No symbols to index");
     }
 }
 
@@ -1447,6 +1464,7 @@ static gboolean vcd_partial_parse_var_evcd(GwVcdPartialLoader *self, struct vcds
     }
     v->id = g_malloc(self->yylen + 1);
     strcpy(v->id, self->yytext);
+    g_test_message("Setting symbol id='%s', yylen=%d", self->yytext, self->yylen);
     v->nid = vcdid_hash(self->yytext, self->yylen);
 
     if (v->nid == (self->vcd_hash_max + 1)) {
@@ -1458,9 +1476,11 @@ static gboolean vcd_partial_parse_var_evcd(GwVcdPartialLoader *self, struct vcds
     }
 
     if (v->nid < self->vcd_minid) {
+        g_test_message("Updating vcd_minid: %u -> %u", self->vcd_minid, v->nid);
         self->vcd_minid = v->nid;
     }
     if (v->nid > self->vcd_maxid) {
+        g_test_message("Updating vcd_maxid: %u -> %u", self->vcd_maxid, v->nid);
         self->vcd_maxid = v->nid;
     }
 
@@ -1507,6 +1527,7 @@ static gboolean vcd_partial_parse_var_regular(GwVcdPartialLoader *self, struct v
     }
     v->id = g_malloc(self->yylen + 1);
     strcpy(v->id, self->yytext);
+    g_test_message("Setting symbol id='%s', yylen=%d", self->yytext, self->yylen);
     v->nid = vcdid_hash(self->yytext, self->yylen);
 
     if (v->nid == (self->vcd_hash_max + 1)) {
@@ -1518,9 +1539,11 @@ static gboolean vcd_partial_parse_var_regular(GwVcdPartialLoader *self, struct v
     }
 
     if (v->nid < self->vcd_minid) {
+        g_test_message("Updating vcd_minid: %u -> %u", self->vcd_minid, v->nid);
         self->vcd_minid = v->nid;
     }
     if (v->nid > self->vcd_maxid) {
+        g_test_message("Updating vcd_maxid: %u -> %u", self->vcd_maxid, v->nid);
         self->vcd_maxid = v->nid;
     }
 
@@ -2250,6 +2273,7 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
     self->T_MAX_STR = 1024;
     self->yytext = g_malloc(self->T_MAX_STR + 1);
     self->vcd_minid = G_MAXUINT;
+    self->vcd_maxid = 0;
     self->tree_builder = gw_tree_builder_new(gw_loader_get_hierarchy_delimiter(GW_LOADER(self)));
     self->blackout_regions = gw_blackout_regions_new();
     self->numfacs = 0;
@@ -2673,6 +2697,17 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
         v->lsi = 0;
     }
     v->id = g_strdup(var_id);
+    v->nid = vcdid_hash(var_id, strlen(var_id));
+
+    // Update min/max IDs for efficient symbol lookup
+    if (v->nid < self->vcd_minid) {
+        g_test_message("Updating vcd_minid: %u -> %u", self->vcd_minid, v->nid);
+        self->vcd_minid = v->nid;
+    }
+    if (v->nid > self->vcd_maxid) {
+        g_test_message("Updating vcd_maxid: %u -> %u", self->vcd_maxid, v->nid);
+        self->vcd_maxid = v->nid;
+    }
 
     // Generate the full hierarchical name NOW, while the tree_builder scope is correct.
     if ((vartype != V_REAL) && (vartype != V_STRINGTYPE) && (vartype != V_INTEGER) && var_size > 1) {
@@ -3276,26 +3311,35 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         }
         g_test_message("JIT IMPORT: Found properties for symbol %s: vartype=%d, size=%d", symbol_id, props->vartype, props->size);
 
-        // Find the corresponding GwSymbol in the facs using the symbol_id
+        // Find the corresponding GwSymbol using the fast, indexed search function
         GwSymbol *fac_symbol = NULL;
-        g_test_message("JIT IMPORT: Looking for symbol %s in facs (length=%u)", symbol_id, gw_facs_get_length(facs));
-        for (guint i = 0; i < gw_facs_get_length(facs); i++) {
-            GwSymbol *fac = gw_facs_get(facs, i);
-            // Check if this symbol has the matching identifier
-            if (fac->vec_root && ((struct vcdsymbol *)fac->vec_root)->id) {
-                const gchar *fac_id = ((struct vcdsymbol *)fac->vec_root)->id;
-                g_test_message("JIT IMPORT: Checking facs[%u]: %s (id: %s)", i, fac->name ? fac->name : "NULL", fac_id);
-                if (g_strcmp0(fac_id, symbol_id) == 0) {
-                    fac_symbol = fac;
-                    g_test_message("JIT IMPORT: Found matching symbol %s", symbol_id);
-                    break;
+        struct vcdsymbol *vcd_sym = bsearch_vcd(self, (char *)symbol_id, strlen(symbol_id));
+        
+        if (vcd_sym && vcd_sym->sym_chain) {
+            fac_symbol = vcd_sym->sym_chain;
+            g_test_message("JIT IMPORT: Found matching symbol %s via indexed lookup", symbol_id);
+        } else {
+            g_test_message("JIT IMPORT: Symbol %s not found via indexed lookup", symbol_id);
+            // Fallback to linear scan for debugging (remove this once verified)
+            g_test_message("JIT IMPORT: Falling back to linear scan for symbol %s in facs (length=%u)", symbol_id, gw_facs_get_length(facs));
+            for (guint i = 0; i < gw_facs_get_length(facs); i++) {
+                GwSymbol *fac = gw_facs_get(facs, i);
+                // Check if this symbol has the matching identifier
+                if (fac->vec_root && ((struct vcdsymbol *)fac->vec_root)->id) {
+                    const gchar *fac_id = ((struct vcdsymbol *)fac->vec_root)->id;
+                    g_test_message("JIT IMPORT: Checking facs[%u]: %s (id: %s)", i, fac->name ? fac->name : "NULL", fac_id);
+                    if (g_strcmp0(fac_id, symbol_id) == 0) {
+                        fac_symbol = fac;
+                        g_test_message("JIT IMPORT: Found matching symbol %s via linear scan", symbol_id);
+                        break;
+                    }
+                } else {
+                    g_test_message("JIT IMPORT: facs[%u] has no vec_root or id", i);
                 }
-            } else {
-                g_test_message("JIT IMPORT: facs[%u] has no vec_root or id", i);
             }
-        }
-        if (fac_symbol == NULL) {
-            g_test_message("JIT IMPORT: Symbol %s not found in facs", symbol_id);
+            if (fac_symbol == NULL) {
+                g_test_message("JIT IMPORT: Symbol %s not found in facs", symbol_id);
+            }
         }
 
         if (fac_symbol && fac_symbol->n) {

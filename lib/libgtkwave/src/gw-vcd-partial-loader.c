@@ -1007,7 +1007,7 @@ static void process_binary_stream(GwVcdPartialLoader *self, gchar typ, const gch
 
     if (typ == 'b' || typ == 'B') {
         if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, vector);
+            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
         } else {
             gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
         }
@@ -1029,7 +1029,7 @@ static void process_binary_stream(GwVcdPartialLoader *self, gchar typ, const gch
             }
 
         bit_term:
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, bits);
+            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, bits);
         }
     }
 }
@@ -1079,7 +1079,7 @@ static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vec
 
     if (typ == 'b' || typ == 'B') {
         if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, vector);
+            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
         } else {
             gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
         }
@@ -1101,7 +1101,7 @@ static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vec
             }
 
         bit_term:
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, bits);
+            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, bits);
         }
     }
 }
@@ -2786,7 +2786,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                     gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->vartype);
                     gw_vlist_writer_append_uv32(writer, (unsigned int)symbol->size);
                     gw_vlist_writer_append_uv32(writer, 0);
-                    gw_vlist_writer_append_mvl9_string(writer, "x");
+                    gw_vlist_writer_append_string(writer, "x");
                 }
                 break;
         }
@@ -3057,7 +3057,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
                 gw_vlist_writer_append_uv32(writer, (unsigned int)v->size);
                 gw_vlist_writer_append_uv32(writer, 0);
-                gw_vlist_writer_append_mvl9_string(writer, "x");
+                gw_vlist_writer_append_string(writer, "x");
             }
             
             // Only store hash table writers for scalar signals

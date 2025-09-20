@@ -2272,7 +2272,7 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
     self->vlist_writers = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
 
     /* Initialize vlist import positions hash table */
-    self->vlist_import_positions = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    self->vlist_import_positions = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
     /* Initialize symbol properties hash table */
     self->vlist_symbol_properties = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
@@ -2801,8 +2801,11 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     g_hash_table_insert(self->vlist_symbol_properties, g_strdup(var_id), props);
 
     // Initialize import position for this signal (vlist type will be set later)
-    g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), GUINT_TO_POINTER(0));
-    g_test_message("Initialized import position for symbol %s: 0", var_id);
+    // Store as combined value with vlist_type=0 in upper 32 bits
+    guint64 *combined_value = g_new(guint64, 1);
+    *combined_value = ((guint64)0 << 32) | 0;
+    g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), combined_value);
+    g_test_message("Initialized import position for symbol %s: combined_value=%lu", var_id, *combined_value);
 
 }
 
@@ -3299,12 +3302,23 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             GwNode *node = fac_symbol->n;
             
             // Get the current import position and vlist type for this signal
-            gpointer import_pos_ptr = g_hash_table_lookup(self->vlist_import_positions, symbol_id);
-            if (import_pos_ptr == NULL) {
+            guint64 *combined_value_ptr = g_hash_table_lookup(self->vlist_import_positions, symbol_id);
+            if (combined_value_ptr == NULL) {
                 g_test_message("JIT IMPORT: No import position found for symbol %s", symbol_id);
+                // Debug: list all keys in the hash table and compare with requested symbol
+                GList *keys = g_hash_table_get_keys(self->vlist_import_positions);
+                g_test_message("JIT IMPORT: Available keys in import positions hash table:");
+                for (GList *iter = keys; iter != NULL; iter = iter->next) {
+                    const gchar *key = (const gchar *)iter->data;
+                    g_test_message("  - '%s' (len=%zu, hash=%u) vs '%s' (len=%zu, hash=%u)", 
+                                  key, strlen(key), g_str_hash(key),
+                                  symbol_id, strlen(symbol_id), g_str_hash(symbol_id));
+                    g_test_message("    g_str_equal result: %d", g_str_equal(key, symbol_id));
+                }
+                g_list_free(keys);
                 continue;
             }
-            guint64 combined_value = GPOINTER_TO_UINT(import_pos_ptr);
+            guint64 combined_value = *combined_value_ptr;
             gsize last_pos = combined_value & 0xFFFFFFFF;
             guint32 vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
             g_test_message("JIT IMPORT: Symbol %s, last_pos=%zu, vlist_type=%u (0x%x)", symbol_id, last_pos, vlist_type, vlist_type);
@@ -3333,9 +3347,10 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         gw_vlist_reader_read_uv32(reader); // Skip size
                     }
                     // Store the vlist type for future reads
-                    guint64 combined_value = ((guint64)vlist_type << 32) | 0;
-                    g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(combined_value));
-                    g_test_message("Stored vlist type for symbol %s: vlist_type=%u (0x%x), combined_value=%lu", symbol_id, vlist_type, vlist_type, combined_value);
+                    guint64 *combined_value_ptr = g_new(guint64, 1);
+                    *combined_value_ptr = ((guint64)vlist_type << 32) | 0;
+                    g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), combined_value_ptr);
+                    g_test_message("Stored vlist type for symbol %s: vlist_type=%u (0x%x), combined_value=%lu", symbol_id, vlist_type, vlist_type, *combined_value_ptr);
                 } else {
                     // For subsequent reads, we need to know the vlist type
                     // It's stored in the upper 32 bits of the import position
@@ -3412,8 +3427,9 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 }
 
                 // Store both the import position and vlist type for future reads
-                guint64 combined_value = ((guint64)vlist_type << 32) | vlist->size;
-                g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), GUINT_TO_POINTER(combined_value));
+                guint64 *combined_value_ptr = g_new(guint64, 1);
+                *combined_value_ptr = ((guint64)vlist_type << 32) | vlist->size;
+                g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), combined_value_ptr);
                 g_object_unref(reader);
             }
         }

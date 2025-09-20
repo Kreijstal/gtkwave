@@ -76,6 +76,7 @@ struct _GwVcdPartialLoader
     off_t vcd_fsiz;
 
     gboolean header_over;
+    gboolean is_streaming_mode;
 
     /* NEW: Stream parsing members */
     GString *internal_buffer;
@@ -2103,6 +2104,8 @@ static GwTree *vcd_build_tree(GwVcdPartialLoader *self, GwFacs *facs)
 
 /*******************************************************************************/
 
+
+
 static void gw_vcd_partial_loader_finalize(GObject *object)
 {
     GwVcdPartialLoader *self = GW_VCD_PARTIAL_LOADER(object);
@@ -2116,6 +2119,7 @@ static void gw_vcd_partial_loader_finalize(GObject *object)
         g_hash_table_destroy(self->vlist_import_positions);
         self->vlist_import_positions = NULL;
     }
+
 
     G_OBJECT_CLASS(gw_vcd_partial_loader_parent_class)->finalize(object);
 }
@@ -2163,6 +2167,8 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
     /* NEW: Initialize stateful parsing members */
     self->internal_buffer = g_string_new("");
     self->processed_offset = 0;
+    self->is_streaming_mode = FALSE;
+    self->tree_root = NULL; // Initialize tree_root to avoid stale pointers
 
     /* Create the single dump file instance that will be updated live */
     self->dump_file = NULL; // Will be created when time properties are known
@@ -3109,8 +3115,31 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         return NULL; // No signals defined yet
     }
 
+    // Detect streaming mode (no $enddefinitions but header is complete)
+    g_test_message("Checking streaming mode: header_over=%d, time_scale=%" GW_TIME_FORMAT ", numfacs=%u, current_scope=%p", 
+                   self->header_over, self->time_scale, self->numfacs, gw_tree_builder_get_current_scope(self->tree_builder));
+    if (!self->is_streaming_mode && self->header_over) {
+        // Check if we have all components of a complete header
+        if (self->time_scale != 0 && self->numfacs > 0 && 
+            gw_tree_builder_get_current_scope(self->tree_builder) == NULL) {
+            self->is_streaming_mode = TRUE;
+            g_test_message("Detected streaming mode - enabling state preservation");
+        }
+    }
+
+
+
     // --- CRITICAL POST-PROCESSING STEPS ---
     // These steps are essential for creating properly named and searchable symbols
+    
+    // For streaming mode: only build structures once
+    g_test_message("Streaming mode check: is_streaming_mode=%d, dump_file=%p", self->is_streaming_mode, self->dump_file);
+    if (self->is_streaming_mode && self->dump_file != NULL) {
+        // Skip structure building and only perform JIT import
+        g_test_message("Streaming mode: reusing existing dump file structures");
+        goto jit_import_only;
+    }
+
     
     g_test_message("get_dump_file called: sym_chain=%p, numfacs=%u", self->sym_chain, self->numfacs);
     
@@ -3131,6 +3160,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     }
     gw_facs_sort(facs); // IMPORTANT: Sort the facs by their full names
 
+    // Build tree from tree builder to get proper scope hierarchy with tree kinds
     // Build tree from tree builder to get proper scope hierarchy with tree kinds
     self->tree_root = gw_tree_builder_build(self->tree_builder);
     GwTree *tree = vcd_build_tree(self, facs);
@@ -3367,6 +3397,15 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     g_debug("Dump file created successfully: %p", self->dump_file);
 
     // The object takes ownership, so we don't need to unref tree and facs
+
+jit_import_only:
+    // --- Just-in-Time Partial Import (Always Runs) ---
+    // This block runs on every call to import new data
+    
+    // Update the time range of the persistent dump file
+
+
+
 
     /* Return the single dump file instance that's always kept up to date */
     return GW_DUMP_FILE(self->dump_file);

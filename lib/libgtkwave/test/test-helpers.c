@@ -109,7 +109,7 @@ void assert_history_matches_up_to_time(GwNode *expected_node, GwNode *actual_nod
 
         // Compare values based on type
         if (expected_hist->flags & GW_HIST_ENT_FLAG_STRING) {
-            g_assert_cmpstr(actual_hist->v.h_vector, ==, expected_hist->v.h_vector);
+            g_assert_cmpstr((const char *)actual_hist->v.h_vector, ==, (const char *)expected_hist->v.h_vector);
         } else if (expected_hist->flags & GW_HIST_ENT_FLAG_REAL) {
             g_assert_cmpfloat(actual_hist->v.h_double, ==, expected_hist->v.h_double);
         } else if (expected_node->extvals) { 
@@ -255,7 +255,7 @@ void assert_signal_history_matches(GwNode *expected_node, GwNode *actual_node)
         // Compare values based on type
         if (expected_hist->flags & GW_HIST_ENT_FLAG_STRING) {
             g_test_message("Comparing string values: actual='%s', expected='%s'", actual_hist->v.h_vector, expected_hist->v.h_vector);
-            g_assert_cmpstr(actual_hist->v.h_vector, ==, expected_hist->v.h_vector);
+            g_assert_cmpstr((const char *)actual_hist->v.h_vector, ==, (const char *)expected_hist->v.h_vector);
         } else if (expected_hist->flags & GW_HIST_ENT_FLAG_REAL) {
             g_test_message("Comparing real values: actual=%f, expected=%f", actual_hist->v.h_double, expected_hist->v.h_double);
             g_assert_cmpfloat(actual_hist->v.h_double, ==, expected_hist->v.h_double);

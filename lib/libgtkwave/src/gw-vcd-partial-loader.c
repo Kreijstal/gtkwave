@@ -993,9 +993,27 @@ static void process_binary_stream(GwVcdPartialLoader *self, GwVlistWriter *write
     g_assert(error != NULL && *error == NULL);
     g_debug("process_binary_stream: vector=%s, vlen=%d, v=%p, writer=%p", vector, vlen, v, writer);
 
+    // Debug: print detailed information about what we're writing
+    g_printerr("DEBUG: process_binary_stream WRITING: time_delta=%u, vector='%s' (length=%d)\n", time_delta, vector, vlen);
+    g_printerr("DEBUG: Vector bytes: [0x%02x, 0x%02x, 0x%02x, 0x%02x]\n", 
+              vlen > 0 ? (unsigned char)vector[0] : 0,
+              vlen > 1 ? (unsigned char)vector[1] : 0,
+              vlen > 2 ? (unsigned char)vector[2] : 0,
+              vlen > 3 ? (unsigned char)vector[3] : 0);
+
     // The writer is now created upfront and passed in. We just need to write the value.
     gw_vlist_writer_append_uv32(writer, time_delta);
     gw_vlist_writer_append_string(writer, vector);
+    
+    // Debug: check what was actually written to the vlist
+    GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
+    if (vlist && vlist->size > 0) {
+        g_printerr("DEBUG: VList content after writing: size=%u\n", vlist->size);
+        // Create a temporary reader to see what's in the vlist
+        GwVlistReader *temp_reader = gw_vlist_reader_new_from_writer(writer);
+        g_printerr("DEBUG: Temp reader created\n");
+        g_object_unref(temp_reader);
+    }
 }
 
 static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vector, gint vlen)
@@ -1047,7 +1065,7 @@ static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vec
 
     if (typ == 'b' || typ == 'B') {
         if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, vector);
+            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
         } else {
             gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
         }
@@ -2820,7 +2838,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
         gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
     } else {
         // Vector/Real/String header
-        unsigned char typ2 = (v->vartype == V_REAL || v->vartype == V_STRINGTYPE) ? 'S' : 'B';
+        unsigned char typ2 = (v->vartype == V_REAL) ? 'R' : (v->vartype == V_STRINGTYPE) ? 'S' : 'B';
         gw_vlist_writer_append_uv32(writer, (unsigned int)typ2);
         gw_vlist_writer_append_uv32(writer, (unsigned int)v->vartype);
         gw_vlist_writer_append_uv32(writer, (unsigned int)v->size);
@@ -3119,6 +3137,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                 
                 g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
                               symbol->name, identifier, vector, writer);
+                g_printerr("DEBUG: About to call process_binary_stream for %s (id: %s)\n", symbol->name, identifier);
                 process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
             }
             break;
@@ -3437,118 +3456,52 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
                     }
-                } else if (vlist_type == 'B') {
-                    // Vector value processing - use gw_vlist_reader_next() like original VCD loader
-                    g_test_message("JIT IMPORT: Processing vector values for %s", symbol_id);
-                    g_printerr("DEBUG: Vector processing for symbol %s, vlist_size=%u, position=%u, done=%d\n",
-                              symbol_id, gw_vlist_reader_get_size(reader), gw_vlist_reader_get_position(reader), gw_vlist_reader_is_done(reader));
-                    guint8 *sbuf = g_malloc(props->size + 1);
-                    
-                    // Basic debug to check if we're even entering this section
-                    g_printerr("DEBUG: VECTOR PROCESSING START for symbol %s\n", symbol_id);
-                    g_printerr("DEBUG: vlist_size=%u, reader_position=%u, reader_done=%d\n", 
-                              gw_vlist_reader_get_size(reader), gw_vlist_reader_get_position(reader), gw_vlist_reader_is_done(reader));
-                    
-
+                } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
+                    // Vector, Real, and String value processing - all use string format
+                    g_test_message("JIT IMPORT: Processing vector/real/string values for %s (type=%c)", symbol_id, vlist_type);
                     
                     while (!gw_vlist_reader_is_done(reader)) {
-                        // Clear sbuf at start of each iteration to avoid leftover data
-                        memset(sbuf, 0, props->size + 1);
-                        g_printerr("DEBUG: Inside vector processing loop, position=%u/%u\n", 
-                                  gw_vlist_reader_get_position(reader), gw_vlist_reader_get_size(reader));
                         guint32 time_delta = gw_vlist_reader_read_uv32(reader);
-                        g_printerr("DEBUG: time_delta=%u, reader_position_after_time_delta=%u, current_time=%" GW_TIME_FORMAT "\n", time_delta, gw_vlist_reader_get_position(reader), current_time);
                         current_time += time_delta;
                         
-                        guint32 dst_len = 0;
-                        for (;;) {
-                            gint c = gw_vlist_reader_next(reader);
-                            g_printerr("DEBUG: Read packed byte: 0x%02x (%d)\n", c, c);
-                            if (c < 0) {
-                                g_printerr("DEBUG: Breaking due to negative char: %d\n", c);
-                                break;
-                            }
-                            g_printerr("DEBUG: Byte 0x%02x: high_nibble=0x%x, low_nibble=0x%x\n", c, c >> 4, c & GW_BIT_MASK);
-                            if ((c >> 4) == GW_BIT_MASK) {
-                                g_printerr("DEBUG: Breaking due to high nibble mask: 0x%02x\n", c >> 4);
-                                break;
-                            }
-                            if (dst_len == props->size) {
-                                if (props->size != 1)
-                                    memmove(sbuf, sbuf + 1, dst_len - 1);
-                                dst_len--;
-                            }
-                            sbuf[dst_len++] = c >> 4;
-                            g_printerr("DEBUG: Stored high nibble 0x%x at sbuf[%u], sbuf content so far: [0x%x, 0x%x, 0x%x, 0x%x]\n", 
-                                      c >> 4, dst_len - 1, 
-                                      dst_len > 0 ? sbuf[0] : 0,
-                                      dst_len > 1 ? sbuf[1] : 0,
-                                      dst_len > 2 ? sbuf[2] : 0,
-                                      dst_len > 3 ? sbuf[3] : 0);
-                            if ((c & GW_BIT_MASK) == GW_BIT_MASK)
-                                break;
-                            if (dst_len == props->size) {
-                                if (props->size != 1)
-                                    memmove(sbuf, sbuf + 1, dst_len - 1);
-                                dst_len--;
-                            }
-                            sbuf[dst_len++] = c & GW_BIT_MASK;
-                            g_printerr("DEBUG: Stored low nibble 0x%x at sbuf[%u], sbuf content so far: [0x%x, 0x%x, 0x%x, 0x%x]\n", 
-                                      c & GW_BIT_MASK, dst_len - 1,
-                                      dst_len > 0 ? sbuf[0] : 0,
-                                      dst_len > 1 ? sbuf[1] : 0,
-                                      dst_len > 2 ? sbuf[2] : 0,
-                                      dst_len > 3 ? sbuf[3] : 0);
-                            g_printerr("DEBUG: After reading byte 0x%02x, reader_position=%u\n", c, gw_vlist_reader_get_position(reader));
-                            if ((c & GW_BIT_MASK) == GW_BIT_MASK)
-                                break;
-                        }
+                        const gchar *value_str = gw_vlist_reader_read_string(reader);
                         
                         GwHistEnt *hent = g_new0(GwHistEnt, 1);
                         hent->time = current_time;
                         
-                        if (props->size == 1) {
-                            hent->v.h_val = sbuf[0];
-                            g_printerr("DEBUG: Scalar value=%d (0x%02x)\n", sbuf[0], sbuf[0]);
+                        if (vlist_type == 'R') {
+                            // Real value
+                            hent->flags = GW_HIST_ENT_FLAG_REAL;
+                            hent->v.h_double = g_ascii_strtod(value_str, NULL);
+                            g_test_message("JIT IMPORT: Added real transition: time=%" GW_TIME_FORMAT ", value=%f, flags=0x%x", current_time, hent->v.h_double, hent->flags);
+                        } else if (vlist_type == 'S') {
+                            // String value
+                            hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
+                            hent->v.h_vector = (char *)g_strdup(value_str);
+                            g_test_message("JIT IMPORT: Added string transition: time=%" GW_TIME_FORMAT ", value=%s, flags=0x%x", current_time, value_str, hent->flags);
                         } else {
-                            guint8 *vector = g_malloc(props->size + 1);
-                            if (dst_len < props->size) {
-                                GwBit extend = (sbuf[0] == GW_BIT_1) ? GW_BIT_0 : sbuf[0];
-                                memset(vector, extend, props->size - dst_len);
-                                memcpy(vector + (props->size - dst_len), sbuf, dst_len);
-                                g_printerr("DEBUG: Vector extended, dst_len=%u, props->size=%d, extend=%d\n", dst_len, props->size, extend);
-                            } else {
-                                memcpy(vector, sbuf, props->size);
-                                g_printerr("DEBUG: Vector copied, dst_len=%u, props->size=%d, reader_position_after_vector=%u\n", dst_len, props->size, gw_vlist_reader_get_position(reader));
-                            }
-                            vector[props->size] = 0;
-                            hent->v.h_vector = vector;
-                            
-                            // Debug: print the vector value
-                            gchar *vector_str = g_malloc(props->size + 1);
+                            // Vector value (type 'B')
+                            hent->v.h_vector = g_malloc(props->size);
                             for (gint i = 0; i < props->size; i++) {
-                                vector_str[i] = gw_bit_to_char(vector[i]);
+                                if (i < (gint)strlen(value_str)) {
+                                    hent->v.h_vector[i] = gw_bit_from_char(value_str[i]);
+                                } else {
+                                    // Extend with zeros if the string is shorter than expected size
+                                    hent->v.h_vector[i] = GW_BIT_0;
+                                }
                             }
-                            vector_str[props->size] = '\0';
-                            g_printerr("DEBUG: Vector value='%s' (raw bytes: [0x%x, 0x%x, 0x%x, 0x%x])\n", 
-                                      vector_str, 
-                                      props->size > 0 ? vector[0] : 0,
-                                      props->size > 1 ? vector[1] : 0,
-                                      props->size > 2 ? vector[2] : 0,
-                                      props->size > 3 ? vector[3] : 0);
-                            g_free(vector_str);
+                            g_test_message("JIT IMPORT: Added vector transition: time=%" GW_TIME_FORMAT ", value=%s, flags=0x%x", current_time, value_str, hent->flags);
                         }
+                        
+                        // value_str is managed by the reader, do not free
                         
                         // The node already has t=-2 and t=-1 placeholders, so we need to
                         // insert after the current last entry (which is at t=-1)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        g_test_message("JIT IMPORT: Added vector transition, numhist=%d", node->numhist);
-                        g_test_message("JIT IMPORT: Reader done status: %d", gw_vlist_reader_is_done(reader));
+                        g_test_message("JIT IMPORT: Added transition, numhist=%d", node->numhist);
                     }
-                    
-                    g_free(sbuf);
                 } else if (vlist_type == 'R' || vlist_type == 'S') {
                     // Real/String value processing - use gw_vlist_reader_read_string()
                     g_test_message("JIT IMPORT: Processing %s values for %s", 
@@ -3605,69 +3558,9 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
         g_object_unref(time_range);
         g_test_message("JIT IMPORT: Time range updated");
-    }
-
-    g_test_message("JIT IMPORT: About to add endcaps");
-    // Add endcaps for equivalence with original loader
-    if (facs) {
-        guint facs_count = gw_facs_get_length(facs);
-        g_test_message("JIT IMPORT: Adding endcaps for %d facs", facs_count);
-        for (guint i = 0; i < facs_count; i++) {
-            GwSymbol *sym = gw_facs_get(facs, i);
-            if (sym && sym->n) {
-                GwNode *node = sym->n;
-                
-                // Create endcap transitions at GW_TIME_MAX-1 and GW_TIME_MAX
-                GwHistEnt *endcap1 = g_new0(GwHistEnt, 1);
-                endcap1->time = GW_TIME_MAX - 1;
-                
-                GwHistEnt *endcap2 = g_new0(GwHistEnt, 1);
-                endcap2->time = GW_TIME_MAX;
-                
-                // Set appropriate values based on signal type
-                if (sym->n->extvals) {
-                    if (sym->n->vartype == GW_VAR_TYPE_VCD_REAL) {
-                        endcap1->flags = GW_HIST_ENT_FLAG_REAL;
-                        endcap1->v.h_double = 1.0; // Represents '1.000000'
-                        endcap2->flags = GW_HIST_ENT_FLAG_REAL;
-                        endcap2->v.h_double = 0.0; // Represents '0.000000'
-                    } else if (sym->n->vartype == GW_VAR_TYPE_GEN_STRING) {
-                        endcap1->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-                        endcap1->v.h_vector = g_strdup("UNDEF");
-                        endcap2->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
-                        endcap2->v.h_vector = g_strdup("");
-                    } else {
-                        // Vector signal
-                        gchar *vector1 = g_malloc(sym->n->msi - sym->n->lsi + 1);
-                        gchar *vector2 = g_malloc(sym->n->msi - sym->n->lsi + 1);
-                        for (int j = 0; j <= sym->n->msi - sym->n->lsi; j++) {
-                            vector1[j] = GW_BIT_X;
-                            vector2[j] = GW_BIT_Z;
-                        }
-                        endcap1->v.h_vector = vector1;
-                        endcap2->v.h_vector = vector2;
-                    }
-                } else {
-                    // Scalar signal
-                    endcap1->v.h_val = GW_BIT_X;
-                    endcap2->v.h_val = GW_BIT_Z;
-                }
-                
-                endcap1->next = endcap2;
-                endcap2->next = NULL;
-                
-                // Append endcaps to history list (after all imported data)
-                if (node->curr) {
-                    node->curr->next = endcap1;
-                    node->curr = endcap2;
-                    // Endcaps are not counted in numhist (matches original loader behavior)
-                }
-            }
         }
-        g_test_message("JIT IMPORT: Endcaps added successfully");
-    }
 
-    // Clean up the symbol IDs list
+        // Clean up the symbol IDs list
     g_list_free(symbol_ids);
 
     g_test_message("JIT IMPORT: Completed successfully");

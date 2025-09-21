@@ -877,6 +877,96 @@ static void test_vcd_partial_loader_vec_root_initialization(void)
 
 
 
+// Test function to verify aliased signals work correctly
+static void test_vcd_partial_loader_aliasing(void)
+{
+    const char *vcd_filepath = "files/basic.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing aliased signals in file: %s", vcd_filepath);
+
+    // --- 1. Load with the NEW partial loader ---
+    g_test_message("Loading with partial VCD loader...");
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+
+    // Feed the whole file in one chunk
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    // Get the live dump file view
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    g_test_message("Partial loader completed successfully");
+
+    // --- 2. Load with the ORIGINAL loader for comparison ---
+    g_test_message("Loading with original VCD loader for comparison...");
+    GwLoader *original_loader = gw_vcd_loader_new();
+    GwDumpFile *expected_dump = gw_loader_load(GW_LOADER(original_loader), vcd_filepath, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(expected_dump);
+
+    // Import the data (call twice like dump.c does)
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+
+    // --- 3. Find specific aliased signals and verify their history ---
+    g_test_message("Checking specific aliased signals...");
+
+    // Check bit alias
+    GwSymbol *expected_bit_alias = gw_dump_file_lookup_symbol(expected_dump, "aliases.bit_alias");
+    GwSymbol *actual_bit_alias = gw_dump_file_lookup_symbol(actual_dump, "aliases.bit_alias");
+
+    g_assert_nonnull(expected_bit_alias);
+    g_assert_nonnull(actual_bit_alias);
+
+    // Check that both have the same number of history entries
+    g_test_message("Expected bit_alias history entries: %d", expected_bit_alias->n->numhist);
+    g_test_message("Actual bit_alias history entries: %d", actual_bit_alias->n->numhist);
+    g_assert_cmpint(expected_bit_alias->n->numhist, ==, actual_bit_alias->n->numhist);
+
+    // Check vector alias
+    GwSymbol *expected_vector_alias = gw_dump_file_lookup_symbol(expected_dump, "aliases.vector_alias");
+    GwSymbol *actual_vector_alias = gw_dump_file_lookup_symbol(actual_dump, "aliases.vector_alias");
+
+    g_assert_nonnull(expected_vector_alias);
+    g_assert_nonnull(actual_vector_alias);
+
+    g_test_message("Expected vector_alias history entries: %d", expected_vector_alias->n->numhist);
+    g_test_message("Actual vector_alias history entries: %d", actual_vector_alias->n->numhist);
+    g_assert_cmpint(expected_vector_alias->n->numhist, ==, actual_vector_alias->n->numhist);
+
+    // Check integer alias
+    GwSymbol *expected_integer_alias = gw_dump_file_lookup_symbol(expected_dump, "aliases.integer_alias");
+    GwSymbol *actual_integer_alias = gw_dump_file_lookup_symbol(actual_dump, "aliases.integer_alias");
+
+    g_assert_nonnull(expected_integer_alias);
+    g_assert_nonnull(actual_integer_alias);
+
+    g_test_message("Expected integer_alias history entries: %d", expected_integer_alias->n->numhist);
+    g_test_message("Actual integer_alias history entries: %d", actual_integer_alias->n->numhist);
+    g_assert_cmpint(expected_integer_alias->n->numhist, ==, actual_integer_alias->n->numhist);
+
+    // --- 4. Use deep comparison helper ---
+    g_test_message("Comparing generated output with original loader using deep comparison...");
+    assert_dump_files_equivalent(expected_dump, actual_dump);
+
+    g_test_message("Aliasing test passed!");
+
+    // --- Cleanup ---
+    g_object_unref(partial_loader);
+    g_object_unref(original_loader);
+}
+
 // Test function for arbitrary VCD file
 static void test_vcd_equivalence_file(gconstpointer user_data)
 {
@@ -956,6 +1046,7 @@ if (argc > 1) {
 } else {
     // These tests are expected to fail due to a known bug in the partial loader
     // where it incorrectly parses vector values from VCD files
+    g_test_add_func("/vcd_partial_loader/aliasing", test_vcd_partial_loader_aliasing);
     g_test_add_func("/vcd_partial_loader/basic", test_vcd_equivalence_full);
     g_test_add_func("/vcd_partial_loader/streaming", test_vcd_equivalence_streaming);
     g_test_add_func("/vcd_partial_loader/incremental", test_vcd_equivalence_incremental);

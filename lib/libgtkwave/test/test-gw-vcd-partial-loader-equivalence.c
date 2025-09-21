@@ -799,6 +799,68 @@ static void test_vcd_equivalence_basic(void)
     g_object_unref(partial_loader);
 }
 
+// Test function to verify vec_root initialization for scalar signals
+static void test_vcd_partial_loader_vec_root_initialization(void)
+{
+    const char *vcd_filepath = "files/basic.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing vec_root initialization for scalar signals in file: %s", vcd_filepath);
+
+    // --- 1. Load with the NEW partial loader ---
+    g_test_message("Loading with partial VCD loader...");
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    
+    // Feed the whole file in one chunk
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    // Get the live dump file view
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    g_test_message("Partial loader completed successfully");
+
+    // --- 2. Load with the ORIGINAL loader for comparison ---
+    g_test_message("Loading with original VCD loader for comparison...");
+    GwLoader *original_loader = gw_vcd_loader_new();
+    GwDumpFile *expected_dump = gw_loader_load(GW_LOADER(original_loader), vcd_filepath, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(expected_dump);
+    
+    // Import the data (call twice like dump.c does)
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+
+    // --- 3. Find the scalar signal "variables.bit" in both dump files ---
+    GwSymbol *expected_scalar = gw_dump_file_lookup_symbol(expected_dump, "variables.bit");
+    GwSymbol *actual_scalar = gw_dump_file_lookup_symbol(actual_dump, "variables.bit");
+
+    g_assert_nonnull(expected_scalar);
+    g_assert_nonnull(actual_scalar);
+
+    // --- 4. Verify that vec_root is NULL for scalar signals ---
+    // This assertion will fail with the current bug, exposing the issue
+    g_test_message("Expected vec_root for scalar signal: %p", expected_scalar->vec_root);
+    g_test_message("Actual vec_root for scalar signal: %p", actual_scalar->vec_root);
+    g_assert_null(actual_scalar->vec_root);
+
+    g_test_message("vec_root initialization test passed!");
+
+    // --- Cleanup ---
+    g_object_unref(partial_loader);
+    g_object_unref(original_loader);
+}
+
 
 
 
@@ -898,6 +960,7 @@ if (argc > 1) {
     g_test_add_func("/vcd_partial_loader/streaming", test_vcd_equivalence_streaming);
     g_test_add_func("/vcd_partial_loader/incremental", test_vcd_equivalence_incremental);
     g_test_add_func("/vcd_partial_loader/basic_vcd", test_vcd_equivalence_basic);
+    g_test_add_func("/vcd_partial_loader/vec_root_initialization", test_vcd_partial_loader_vec_root_initialization);
     
     // Basic timescale test (without deep comparison for now)
     g_test_add_func("/vcd_partial_loader/timescale_1ms", test_vcd_equivalence_timescale_1ms);

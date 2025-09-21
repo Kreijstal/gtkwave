@@ -2807,7 +2807,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     GwSymbol *symbol = g_new0(GwSymbol, 1);
     symbol->name = g_strdup(v->name);
     symbol->n = v->narray[0];
-    symbol->vec_root = (GwSymbol *)v;
+    symbol->vec_root = (GwSymbol *)v->root;
 
     // Store the link from vcdsymbol to GwSymbol for later name updates
     v->sym_chain = symbol;

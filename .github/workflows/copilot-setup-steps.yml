@@ -1,0 +1,26 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: pip install pyvcd
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson gperf flex desktop-file-utils libgtk-3-dev libbz2-dev libjudy-dev libgirepository1.0-dev libfst-dev libgtk-4-dev systemd-coredump valgrind ccache gdb clangd lldb
+
+      - name: Configure coredumps
+        run: |
+          sudo mkdir -p /tmp/cores
+          sudo chmod 777 /tmp/cores
+          echo "/tmp/cores/core.%e.%p" | sudo tee /proc/sys/kernel/core_pattern
+          ulimit -c unlimited

@@ -994,14 +994,6 @@ static void process_binary_stream(GwVcdPartialLoader *self, GwVlistWriter *write
     g_assert(error != NULL && *error == NULL);
     g_debug("process_binary_stream: vector=%s, vlen=%d, v=%p, writer=%p", vector, vlen, v, writer);
 
-    // Debug: print detailed information about what we're writing
-    g_printerr("DEBUG: process_binary_stream WRITING: time_delta=%u, vector='%s' (length=%d)\n", time_delta, vector, vlen);
-    g_printerr("DEBUG: Vector bytes: [0x%02x, 0x%02x, 0x%02x, 0x%02x]\n", 
-              vlen > 0 ? (unsigned char)vector[0] : 0,
-              vlen > 1 ? (unsigned char)vector[1] : 0,
-              vlen > 2 ? (unsigned char)vector[2] : 0,
-              vlen > 3 ? (unsigned char)vector[3] : 0);
-
     // The writer is now created upfront and passed in. We just need to write the value.
     gw_vlist_writer_append_uv32(writer, time_delta);
     gw_vlist_writer_append_string(writer, vector);
@@ -1009,10 +1001,8 @@ static void process_binary_stream(GwVcdPartialLoader *self, GwVlistWriter *write
     // Debug: check what was actually written to the vlist
     GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
     if (vlist && vlist->size > 0) {
-        g_printerr("DEBUG: VList content after writing: size=%u\n", vlist->size);
         // Create a temporary reader to see what's in the vlist
         GwVlistReader *temp_reader = gw_vlist_reader_new_from_writer(writer);
-        g_printerr("DEBUG: Temp reader created\n");
         g_object_unref(temp_reader);
     }
 }
@@ -1028,8 +1018,6 @@ static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vec
         malform_eof_fix(self);
     }
     
-    g_test_message("DEBUG: process_binary called for symbol %s (id: %s), typ=%c, vector=%s", v->name, v->id, typ, vector);
-
     GwNode *n = v->narray[0];
     unsigned int time_delta;
 
@@ -1272,8 +1260,6 @@ static void vcd_partial_parse_timezero(GwVcdPartialLoader *self)
 
     self->global_time_offset = atoi_64(self->yytext);
 
-    // DEBUG(fprintf(stderr, "TIMEZERO: %" GW_TIME_FORMAT "\n",
-    // self->global_time_offset));
     sync_end(self);
 }
 
@@ -1326,10 +1312,6 @@ static void vcd_partial_parse_timescale(GwVcdPartialLoader *self)
             break;
     }
 
-    // DEBUG(fprintf(stderr,
-    //               "TIMESCALE: %" GW_TIME_FORMAT " %cs\n",
-    //               self->time_scale,
-    //               self->time_dimension));
     sync_end(self);
 }
 
@@ -1424,7 +1406,6 @@ static void vcd_partial_parse_scope(GwVcdPartialLoader *self)
     GwTreeNode *scope = gw_tree_builder_push_scope(self->tree_builder, ttype, self->yytext);
     scope->t_which = -1;
 
-    // DEBUG(fprintf(stderr, "SCOPE: %s\n", self->name_prefix->str));
     sync_end(self);
 }
 
@@ -2361,7 +2342,6 @@ static void _vcd_partial_handle_dumpvars(GwVcdPartialLoader *self, const gchar *
     g_assert(token != NULL);
     g_assert(error != NULL && *error == NULL);
 
-    g_test_message("DEBUG: Processing $dumpvars command");
     (void)token; // Unused parameter
 
     // Enter dumpvars state - subsequent value changes will be at time 0
@@ -2373,8 +2353,6 @@ static void _vcd_partial_handle_end(GwVcdPartialLoader *self, const gchar *token
     g_assert(token != NULL);
     g_assert(error != NULL && *error == NULL);
     (void)token; // Unused parameter
-
-    g_test_message("DEBUG: Processing $end command, in_dumpvars_block=%d", self->in_dumpvars_block);
 
     // If we're in dumpvars state, exit it
     if (self->in_dumpvars_block) {
@@ -2541,8 +2519,6 @@ static void _vcd_partial_handle_timezero(GwVcdPartialLoader *self, const gchar *
             if (sscanf(trimmed_content, "%" "ld" "", &timezero_value) == 1) {
                 // Apply timescale scaling to the timezero value
                 self->global_time_offset = timezero_value * self->time_scale;
-                g_test_message("DEBUG: Timezero parsed: %" GW_TIME_FORMAT " (scaled to %" GW_TIME_FORMAT ")", 
-                              timezero_value, self->global_time_offset);
             } else {
                 g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
                            "Failed to parse timezero content: %s", trimmed_content);
@@ -2854,9 +2830,6 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     v->narray[0]->last_time = -1; // Initialize last_time for delta calculations
     v->narray[0]->last_time_raw = -1; // Initialize last_time_raw for delta calculations
     
-    g_test_message("DEBUG: Created node for %s: head.next.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
-                  v->name, v->narray[0]->head.next->time, v->narray[0]->curr->time, v->narray[0]->numhist);
-    
     // Set node metadata from vcdsymbol
     set_vcd_vartype(v, v->narray[0]);
     v->narray[0]->vardt = GW_VAR_DATA_TYPE_NONE;
@@ -2966,7 +2939,6 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     // If we're in dumpvars state, force time to 0 for this transition only
     GwTime original_time = self->current_time;
     if (self->in_dumpvars_block) {
-        g_test_message("DEBUG: In dumpvars block, forcing time to 0 (was %" GW_TIME_FORMAT ")", original_time);
         self->current_time = 0;
     }
 
@@ -3062,7 +3034,6 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     g_assert(symbol != NULL);
     g_assert(symbol->narray != NULL);
     g_assert(symbol->narray[0] != NULL);
-    g_debug("Processing value change for symbol %s, narray[0]=%p, numhist=%d, vartype=%d, id=%s", symbol->name, symbol->narray[0], symbol->narray[0]->numhist, symbol->vartype, symbol->id);
     
     // Calculate time delta from last change for this signal
     // Use raw time values (without global offset) for delta calculation to avoid overflow
@@ -3074,9 +3045,6 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
     }
     
-    g_test_message("DEBUG: time_vlist_count=%u, numhist=%d, time_delta=%u, current_time=%" GW_TIME_FORMAT, 
-                  self->time_vlist_count, symbol->narray[0]->numhist, time_delta, self->current_time);
-
     // Store original last_time for debug message before updating
     GwTime original_last_time = symbol->narray[0]->last_time;
     GwTime original_last_time_raw = symbol->narray[0]->last_time_raw;
@@ -3095,8 +3063,6 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
 
 
     // Handle different value types
-    g_debug("Handling value change: value_char=%c, identifier=%s", value_char, identifier);
-    g_debug("Symbol vartype: %d, narray[0]=%p", symbol->vartype, symbol->narray[0]);
     switch (value_char) {
         case '0':
             if (writer != NULL) {
@@ -3254,7 +3220,6 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                 
                 g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
                               symbol->name, identifier, vector, writer);
-                g_printerr("DEBUG: About to call process_binary_stream for %s (id: %s)\n", symbol->name, identifier);
                 process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
             }
             break;
@@ -3339,7 +3304,6 @@ static void _gw_vcd_partial_loader_parse_buffer(GwVcdPartialLoader *self, GError
 
         // Process the complete token
         gsize token_len = token_end_pos - token_start;
-        g_test_message("DEBUG: Processing token: '%.*s'", (int)token_len, buffer + token_start);
         process_vcd_token(self, buffer + token_start, token_len, error);
 
         if (*error != NULL) {
@@ -3443,10 +3407,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
 
         // Get symbol properties from stored hash table
         GwVcdSymbolProperties *props = g_hash_table_lookup(self->vlist_symbol_properties, symbol_id);
-        g_test_message("JIT IMPORT: Found properties for symbol %s: vartype=%d, size=%d", symbol_id, props->vartype, props->size);
-
-        // Debug: Check if this symbol is already in signal_last_times
-        g_test_message("JIT IMPORT DEBUG: Symbol %s processing", symbol_id);
 
         // Find the corresponding GwSymbol using the fast, indexed search function
         GwSymbol *fac_symbol = NULL;
@@ -3454,9 +3414,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         
         if (vcd_sym && vcd_sym->sym_chain) {
             fac_symbol = vcd_sym->sym_chain;
-            g_test_message("JIT IMPORT: Found matching symbol %s via indexed lookup", symbol_id);
         } else {
-            g_test_message("JIT IMPORT: Symbol %s not found via indexed lookup - this should not happen", symbol_id);
         }
 
         if (fac_symbol && fac_symbol->n) {
@@ -3465,24 +3423,11 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             // Get the current import position and vlist type for this signal
             guint64 *combined_value_ptr = g_hash_table_lookup(self->vlist_import_positions, symbol_id);
             if (combined_value_ptr == NULL) {
-                g_test_message("JIT IMPORT: No import position found for symbol %s", symbol_id);
-                // Debug: list all keys in the hash table and compare with requested symbol
-                GList *keys = g_hash_table_get_keys(self->vlist_import_positions);
-                g_test_message("JIT IMPORT: Available keys in import positions hash table:");
-                for (GList *iter = keys; iter != NULL; iter = iter->next) {
-                    const gchar *key = (const gchar *)iter->data;
-                    g_test_message("  - '%s' (len=%zu, hash=%u) vs '%s' (len=%zu, hash=%u)", 
-                                  key, strlen(key), g_str_hash(key),
-                                  symbol_id, strlen(symbol_id), g_str_hash(symbol_id));
-                    g_test_message("    g_str_equal result: %d", g_str_equal(key, symbol_id));
-                }
-                g_list_free(keys);
                 continue;
             }
             guint64 combined_value = *combined_value_ptr;
             gsize last_pos = combined_value & 0xFFFFFFFF;
             guint32 vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
-            g_test_message("JIT IMPORT: Symbol %s, last_pos=%zu, vlist_type=%u (0x%x)", symbol_id, last_pos, vlist_type, vlist_type);
             GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
             
             // If new data has been written, process it
@@ -3497,12 +3442,10 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 if (node->curr != NULL) {
                     current_time = node->curr->time;
                 }
-                g_test_message("JIT IMPORT: Starting import for %s from time %" GW_TIME_FORMAT, symbol_id, current_time);
                 
                 // Process header if this is the first read
                 if (last_pos == 0 && vlist->size >= 1) {
                     vlist_type = gw_vlist_reader_read_uv32(reader);
-                    g_test_message("JIT IMPORT: First read, vlist_type=%u (0x%x)", vlist_type, vlist_type);
                     if (vlist_type == '0') {
                         gw_vlist_reader_read_uv32(reader); // Skip vartype
                     } else {
@@ -3513,19 +3456,15 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     guint64 *combined_value_ptr = g_new(guint64, 1);
                     *combined_value_ptr = ((guint64)vlist_type << 32) | 0;
                     g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), combined_value_ptr);
-                    g_test_message("Stored vlist type for symbol %s: vlist_type=%u (0x%x), combined_value=%lu", symbol_id, vlist_type, vlist_type, *combined_value_ptr);
                 } else {
                     // For subsequent reads, we need to know the vlist type
                     // It's stored in the upper 32 bits of the import position
                     vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
-                    g_test_message("JIT IMPORT: Subsequent read, vlist_type=%u (0x%x), combined_value=%lu", vlist_type, vlist_type, combined_value);
                 }
 
                 // Process value changes
-                g_test_message("JIT IMPORT: About to process values for %s, vlist_type=%u (0x%x), comparing to '0'=%u", symbol_id, vlist_type, vlist_type, '0');
                 if (vlist_type == '0') {
                     // Scalar value processing
-                    g_test_message("JIT IMPORT: Processing scalar values for %s", symbol_id);
                     static const GwBit EXTRA_VALUES[] = { GW_BIT_X, GW_BIT_Z, GW_BIT_H, GW_BIT_U, GW_BIT_W, GW_BIT_L, GW_BIT_DASH, GW_BIT_X };
                     while (!gw_vlist_reader_is_done(reader)) {
                         guint32 accum = gw_vlist_reader_read_uv32(reader);
@@ -3555,7 +3494,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     }
                 } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
                     // Vector, Real, and String value processing - all use string format
-                    g_test_message("JIT IMPORT: Processing vector/real/string values for %s (type=%c)", symbol_id, vlist_type);
                     
                     while (!gw_vlist_reader_is_done(reader)) {
                         guint32 time_delta = gw_vlist_reader_read_uv32(reader);
@@ -3570,12 +3508,10 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             // Real value
                             hent->flags = GW_HIST_ENT_FLAG_REAL;
                             hent->v.h_double = g_ascii_strtod(value_str, NULL);
-                            g_test_message("JIT IMPORT: Added real transition: time=%" GW_TIME_FORMAT ", value=%f, flags=0x%x", current_time, hent->v.h_double, hent->flags);
                         } else if (vlist_type == 'S') {
                             // String value
                             hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
                             hent->v.h_vector = (char *)g_strdup(value_str);
-                            g_test_message("JIT IMPORT: Added string transition: time=%" GW_TIME_FORMAT ", value=%s, flags=0x%x", current_time, value_str, hent->flags);
                         } else {
                             // Vector value (type 'B')
                             hent->v.h_vector = g_malloc(props->size);
@@ -3587,7 +3523,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                                     hent->v.h_vector[i] = GW_BIT_0;
                                 }
                             }
-                            g_test_message("JIT IMPORT: Added vector transition: time=%" GW_TIME_FORMAT ", value=%s, flags=0x%x", current_time, value_str, hent->flags);
                         }
                         
                         // value_str is managed by the reader, do not free
@@ -3597,12 +3532,9 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        g_test_message("JIT IMPORT: Added transition, numhist=%d", node->numhist);
                     }
                 } else if (vlist_type == 'R' || vlist_type == 'S') {
                     // Real/String value processing - use gw_vlist_reader_read_string()
-                    g_test_message("JIT IMPORT: Processing %s values for %s", 
-                                  vlist_type == 'R' ? "real" : "string", symbol_id);
                     while (!gw_vlist_reader_is_done(reader)) {
                         guint32 time_delta = gw_vlist_reader_read_uv32(reader);
                         const gchar *value_str = gw_vlist_reader_read_string(reader);
@@ -3625,8 +3557,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        g_printerr("DEBUG: Added vector transition, numhist=%d\n", node->numhist);
-                        g_printerr("DEBUG: Reader done status: %d\n", gw_vlist_reader_is_done(reader));
                     }
                 } else {
                     g_test_message("JIT IMPORT: Unsupported vlist type '%c' for symbol %s", vlist_type, symbol_id);
@@ -3639,7 +3569,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), combined_value_ptr);
                 
                 // Store the last absolute time for this signal for the next import
-                g_test_message("JIT IMPORT: Final time for %s: %" GW_TIME_FORMAT, symbol_id, current_time);
                 
                 g_object_unref(reader);
             }
@@ -3648,25 +3577,21 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
 
 
 
-    g_test_message("JIT IMPORT: About to update time range");
     // Update the time range of the persistent dump file
     if (self->end_time > self->start_time) {
         GwTimeRange *time_range = gw_time_range_new(self->start_time, self->end_time);
         gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
         g_object_unref(time_range);
-        g_test_message("JIT IMPORT: Time range updated");
     } else if (self->start_time == -1 && self->end_time == -1) {
         // Header-only parsing - no time values yet, set default time range
         GwTimeRange *time_range = gw_time_range_new(0, 1000); // Default 0-1000 time units
         gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
         g_object_unref(time_range);
-        g_test_message("JIT IMPORT: Default time range set for header-only parsing");
         }
 
         // Clean up the symbol IDs list
     g_list_free(symbol_ids);
 
-    g_test_message("JIT IMPORT: Completed successfully");
     // --- Just-in-Time Partial Import (Always Runs) ---
     // This block runs on every call to import new data
     

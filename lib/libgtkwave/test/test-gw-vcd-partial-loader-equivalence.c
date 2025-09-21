@@ -1,5 +1,6 @@
 #include <gtkwave.h>
 #include <glib/gstdio.h>
+#include <string.h>
 #include "test-helpers.h"
 
 // Simple function to read a file into a string
@@ -253,6 +254,8 @@ static void test_vcd_equivalence_streaming(void)
     g_free(expected_dump_str);
     g_object_unref(partial_loader);
 }
+
+
 
 int main(int argc, char *argv[])
 {

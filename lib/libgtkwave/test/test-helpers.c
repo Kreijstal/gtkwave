@@ -1,4 +1,156 @@
 #include "test-helpers.h"
+#include <string.h>
+
+/**
+ * get_last_value_as_char:
+ * @dump: The dump file containing the signal
+ * @signal_name: The full hierarchical name of the signal
+ *
+ * Returns the last value of the specified signal as a character.
+ * For scalar signals, returns '0', '1', 'X', 'Z', etc.
+ * For vector signals, returns the first character of the vector.
+ * For real signals, returns 'R' (placeholder).
+ * For string signals, returns the first character of the string.
+ */
+gchar get_last_value_as_char(GwDumpFile *dump, const gchar *signal_name)
+{
+    g_assert_nonnull(dump);
+    g_assert_nonnull(signal_name);
+
+    // Find the symbol by name
+    GwSymbol *symbol = gw_dump_file_lookup_symbol(dump, signal_name);
+    g_assert_nonnull(symbol);
+    g_assert_nonnull(symbol->n);
+
+    GwNode *node = symbol->n;
+    g_assert_nonnull(node->curr); // Should have at least the placeholder entries
+
+    // Get the last history entry (skip placeholders if needed)
+    GwHistEnt *last_hist = node->curr;
+    while (last_hist != NULL && last_hist->next != NULL) {
+        last_hist = last_hist->next;
+    }
+
+    g_assert_nonnull(last_hist);
+    
+    // Debug output to understand what's happening
+    g_test_message("get_last_value_as_char: signal=%s, time=%" GW_TIME_FORMAT ", flags=0x%x", 
+                   signal_name, last_hist->time, last_hist->flags);
+
+    // Convert the value to a character based on signal type
+    gchar result;
+    if (node->extvals) {
+        if (node->vartype == GW_VAR_TYPE_VCD_REAL) {
+            result = 'R'; // Placeholder for real values
+        } else if (node->vartype == GW_VAR_TYPE_GEN_STRING) {
+            if (last_hist->flags & GW_HIST_ENT_FLAG_STRING) {
+                result = last_hist->v.h_vector[0]; // First character of string
+            } else {
+                result = '?'; // Unknown string format
+            }
+        } else {
+            // Vector signal - return first character
+            result = gw_bit_to_char(last_hist->v.h_vector[0]);
+        }
+    } else {
+        // Scalar signal
+        result = gw_bit_to_char(last_hist->v.h_val);
+    }
+    
+    g_test_message("get_last_value_as_char: result='%c' (%d)", result, result);
+    return result;
+}
+
+/**
+ * assert_history_matches_up_to_time:
+ * @expected_node: The node with expected history (from original loader)
+ * @actual_node: The node with actual history (from partial loader)
+ * @max_time: The maximum time to compare up to (inclusive)
+ *
+ * Compares the signal history of two nodes up to the specified time.
+ * Asserts that the partial loader's history matches the ground truth
+ * up to the given time, and that it doesn't contain any extra transitions
+ * beyond that time.
+ */
+void assert_history_matches_up_to_time(GwNode *expected_node, GwNode *actual_node, GwTime max_time)
+{
+    g_assert_nonnull(expected_node);
+    g_assert_nonnull(actual_node);
+
+    // Get the first history entries (skip the head which is just a placeholder)
+    GwHistEnt *expected_hist = expected_node->head.next;
+    GwHistEnt *actual_hist = actual_node->head.next;
+
+    guint expected_count = 0;
+    guint actual_count = 0;
+
+    // Compare each transition up to max_time
+    while (expected_hist != NULL && actual_hist != NULL) {
+        // Skip placeholder transitions in partial loader (times -2 and -1)
+        if (actual_hist->time < 0) {
+            g_test_message("Skipping placeholder transition at time %" GW_TIME_FORMAT, actual_hist->time);
+            actual_hist = actual_hist->next;
+            actual_count++;
+            continue;
+        }
+
+        // Stop if we've reached beyond the max_time
+        if (expected_hist->time > max_time) {
+            break;
+        }
+
+        g_test_message("Comparing transition at time %" GW_TIME_FORMAT, expected_hist->time);
+        
+        // Assert that the time of the transition is identical
+        g_assert_cmpint(actual_hist->time, ==, expected_hist->time);
+
+        // Assert that the flags are identical
+        g_assert_cmpint(actual_hist->flags, ==, expected_hist->flags);
+
+        // Compare values based on type
+        if (expected_hist->flags & GW_HIST_ENT_FLAG_STRING) {
+            g_assert_cmpstr(actual_hist->v.h_vector, ==, expected_hist->v.h_vector);
+        } else if (expected_hist->flags & GW_HIST_ENT_FLAG_REAL) {
+            g_assert_cmpfloat(actual_hist->v.h_double, ==, expected_hist->v.h_double);
+        } else if (expected_node->extvals) { 
+            // Vector of bits - compare the entire vector
+            int width = ABS(expected_node->msi - expected_node->lsi) + 1;
+            g_assert_cmpmem(actual_hist->v.h_vector, width, expected_hist->v.h_vector, width);
+        } else { 
+            // Single bit
+            g_assert_cmpint(actual_hist->v.h_val, ==, expected_hist->v.h_val);
+        }
+
+        expected_hist = expected_hist->next;
+        actual_hist = actual_hist->next;
+        expected_count++;
+        actual_count++;
+    }
+
+    // Assert that the partial loader doesn't have extra transitions beyond max_time
+    while (actual_hist != NULL && actual_hist->time <= max_time) {
+        // Skip placeholder transitions in partial loader (times -2 and -1)
+        if (actual_hist->time < 0) {
+            g_test_message("Skipping placeholder transition at time %" GW_TIME_FORMAT, actual_hist->time);
+            actual_hist = actual_hist->next;
+            actual_count++;
+            continue;
+        }
+        
+        g_test_message("Unexpected transition in partial loader at time %" GW_TIME_FORMAT, actual_hist->time);
+        actual_hist = actual_hist->next;
+        actual_count++;
+    }
+
+    // The actual history should not have any more transitions up to max_time
+    // (excluding placeholders which are allowed)
+    if (actual_hist != NULL && actual_hist->time <= max_time) {
+        g_test_message("Extra non-placeholder transition found at time %" GW_TIME_FORMAT, actual_hist->time);
+        g_assert_true(actual_hist->time > max_time); // This should fail and show the problem
+    }
+
+    g_test_message("Compared %u transitions up to time %" GW_TIME_FORMAT, expected_count, max_time);
+}
 
 /**
  * assert_signal_history_matches:

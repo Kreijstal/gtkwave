@@ -3310,7 +3310,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     }
 
     // Get the facs from the existing dump file
-    GwFacs *facs = gw_dump_file_get_facs(GW_DUMP_FILE(self->dump_file));
+
 
     // Perform Just-in-Time Partial Import for each signal.
     // Get list of symbol IDs first to avoid iteration issues
@@ -3339,27 +3339,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             fac_symbol = vcd_sym->sym_chain;
             g_test_message("JIT IMPORT: Found matching symbol %s via indexed lookup", symbol_id);
         } else {
-            g_test_message("JIT IMPORT: Symbol %s not found via indexed lookup", symbol_id);
-            // Fallback to linear scan for debugging (remove this once verified)
-            g_test_message("JIT IMPORT: Falling back to linear scan for symbol %s in facs (length=%u)", symbol_id, gw_facs_get_length(facs));
-            for (guint i = 0; i < gw_facs_get_length(facs); i++) {
-                GwSymbol *fac = gw_facs_get(facs, i);
-                // Check if this symbol has the matching identifier
-                if (fac->vec_root && ((struct vcdsymbol *)fac->vec_root)->id) {
-                    const gchar *fac_id = ((struct vcdsymbol *)fac->vec_root)->id;
-                    g_test_message("JIT IMPORT: Checking facs[%u]: %s (id: %s)", i, fac->name ? fac->name : "NULL", fac_id);
-                    if (g_strcmp0(fac_id, symbol_id) == 0) {
-                        fac_symbol = fac;
-                        g_test_message("JIT IMPORT: Found matching symbol %s via linear scan", symbol_id);
-                        break;
-                    }
-                } else {
-                    g_test_message("JIT IMPORT: facs[%u] has no vec_root or id", i);
-                }
-            }
-            if (fac_symbol == NULL) {
-                g_test_message("JIT IMPORT: Symbol %s not found in facs", symbol_id);
-            }
+            g_test_message("JIT IMPORT: Symbol %s not found via indexed lookup - this should not happen", symbol_id);
         }
 
         if (fac_symbol && fac_symbol->n) {

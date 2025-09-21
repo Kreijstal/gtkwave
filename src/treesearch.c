@@ -171,12 +171,14 @@ void fill_sig_store(void)
             continue;
         }
 
-        if (t_prev) /* duplicates removal for faulty dumpers */
+        /* Temporarily disable duplicate removal to debug signal store issue
+        if (t_prev) 
         {
             if (!strcmp(t_prev->name, t->name)) {
                 continue;
             }
         }
+        */
         t_prev = t;
 
         GwSymbol *fac = gw_facs_get(facs, i);

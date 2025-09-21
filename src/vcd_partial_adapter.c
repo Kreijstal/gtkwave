@@ -47,6 +47,7 @@ static gboolean refresh_signal_store_idle(gpointer user_data)
     if (tree) {
         GwTreeNode *tree_root = gw_tree_get_root(tree);
         if (tree_root) {
+            fprintf(stderr, "DEBUG: Updating signal root to: %p\n", tree_root);
             // Update the signal root to the complete tree from dump file
             GLOBALS->sig_root_treesearch_gtk2_c_1 = tree_root;
             
@@ -119,13 +120,35 @@ static gboolean import_signals_timeout_callback(gpointer user_data)
     fprintf(stderr, "DEBUG: Signal import completed\n");
     
     // Schedule signal store refresh on the main thread to ensure UI updates properly
+    // This ensures the signal store is populated after the UI is built and the tree is available
+    fprintf(stderr, "DEBUG: Checking if signal store refresh can be scheduled\n");
+    fprintf(stderr, "DEBUG: dump_file: %p, sig_store_treesearch_gtk2_c_1: %p\n",
+            GLOBALS->dump_file, GLOBALS->sig_store_treesearch_gtk2_c_1);
+    
     if (GLOBALS->dump_file && GLOBALS->sig_store_treesearch_gtk2_c_1) {
         fprintf(stderr, "DEBUG: Scheduling signal store refresh via g_idle_add\n");
-        g_idle_add(refresh_signal_store_idle, NULL);
+        
+        // Get the complete tree from the dump file to ensure it's available
+        GwTree *tree = gw_dump_file_get_tree(GLOBALS->dump_file);
+        if (tree) {
+            GwTreeNode *tree_root = gw_tree_get_root(tree);
+            if (tree_root) {
+                fprintf(stderr, "DEBUG: Tree root available: %p, scheduling refresh\n", tree_root);
+                g_idle_add(refresh_signal_store_idle, NULL);
+            } else {
+                fprintf(stderr, "DEBUG: Tree root is NULL, cannot refresh signal store\n");
+            }
+        } else {
+            fprintf(stderr, "DEBUG: Tree is NULL, cannot refresh signal store\n");
+        }
     } else {
         fprintf(stderr, "DEBUG: Cannot refresh signal store - missing required globals\n");
-        fprintf(stderr, "DEBUG: dump_file: %p, sig_store_treesearch_gtk2_c_1: %p\n",
-                GLOBALS->dump_file, GLOBALS->sig_store_treesearch_gtk2_c_1);
+        if (!GLOBALS->dump_file) {
+            fprintf(stderr, "DEBUG: dump_file is NULL\n");
+        }
+        if (!GLOBALS->sig_store_treesearch_gtk2_c_1) {
+            fprintf(stderr, "DEBUG: sig_store_treesearch_gtk2_c_1 is NULL\n");
+        }
     }
     
     return G_SOURCE_REMOVE; // Run only once

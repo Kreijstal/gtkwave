@@ -1390,10 +1390,18 @@ loader_check_head:
             // This is expected for interactive sessions - the dump file will be
             // populated as data arrives from shared memory
             fprintf(stderr, "INFO: Interactive session started. Waiting for VCD data from shared memory...\n");
+        } else {
+            // In interactive mode, we now have a valid dump file with parsed VCD header
+            // so we can proceed with normal UI building instead of skipping it
+            fprintf(stderr, "DEBUG: Interactive mode - VCD header parsed successfully, proceeding with UI build\n");
+            
+
         }
         
         free_2(shm_id);
-        fprintf(stderr, "DEBUG: Jumping to skip_traditional_loading\n");
+        
+        // In interactive mode, always skip traditional loading since partial loader handles everything
+        fprintf(stderr, "DEBUG: Jumping to skip_traditional_loading (interactive mode)\n");
         goto skip_traditional_loading;
     }
 

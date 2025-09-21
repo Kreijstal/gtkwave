@@ -1395,7 +1395,52 @@ loader_check_head:
             // so we can proceed with normal UI building instead of skipping it
             fprintf(stderr, "DEBUG: Interactive mode - VCD header parsed successfully, proceeding with UI build\n");
             
-
+            // Immediately populate the signal store for interactive mode to avoid relying on timer callbacks
+            // that might not execute due to timeout constraints
+            if (GLOBALS->dump_file) {
+                GwTree *tree = gw_dump_file_get_tree(GLOBALS->dump_file);
+                if (tree) {
+                    GwTreeNode *tree_root = gw_tree_get_root(tree);
+                    if (tree_root) {
+                        // In interactive mode, we need to find the actual signal nodes
+                        // The tree root contains hierarchy nodes like "variables" and "aliases"
+                        // We need to traverse to find the nodes that contain actual signals
+                        GwTreeNode *signal_root = NULL;
+                        
+                        for (GwTreeNode *node = tree_root; node != NULL; node = node->next) {
+                            if (node->child && node->child->t_which >= 0) {
+                                // This node has children that are actual signals
+                                signal_root = node->child;
+                                fprintf(stderr, "DEBUG: Found signal root at %p (%s)\n", signal_root, node->name);
+                                break;
+                            }
+                        }
+                        
+                        if (signal_root) {
+                            fprintf(stderr, "DEBUG: Setting signal root to child nodes: %p\n", signal_root);
+                            GLOBALS->sig_root_treesearch_gtk2_c_1 = signal_root;
+                            
+                            // Initialize signal store if not already done
+                            if (!GLOBALS->sig_store_treesearch_gtk2_c_1) {
+                                GLOBALS->sig_store_treesearch_gtk2_c_1 = gtk_list_store_new(5, 
+                                    G_TYPE_STRING, G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+                            }
+                            
+                            // Populate the signal store immediately
+                            fill_sig_store();
+                            fprintf(stderr, "DEBUG: Signal store populated immediately for interactive mode\n");
+                        } else {
+                            fprintf(stderr, "DEBUG: No signal nodes found in tree hierarchy\n");
+                        }
+                    } else {
+                        fprintf(stderr, "DEBUG: Tree root is NULL, cannot populate signal store\n");
+                    }
+                } else {
+                    fprintf(stderr, "DEBUG: Tree is NULL, cannot populate signal store\n");
+                }
+            } else {
+                fprintf(stderr, "DEBUG: Dump file is NULL, cannot populate signal store\n");
+            }
         }
         
         free_2(shm_id);

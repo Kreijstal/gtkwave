@@ -255,6 +255,94 @@ static void test_vcd_equivalence_streaming(void)
     g_object_unref(partial_loader);
 }
 
+static void test_vcd_equivalence_incremental(void)
+{
+    const char *vcd_filepath = "files/equivalence.vcd";
+    const char *golden_dump_filepath = "files/equivalence.vcd.dump";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence with incremental loading and intermediate verification...");
+
+    // --- 1. Read the VCD content and golden reference ---
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    gchar *expected_dump_str = read_file_contents(golden_dump_filepath);
+    g_assert_nonnull(expected_dump_str);
+
+    // --- 2. Load with the NEW partial loader using carefully chosen split points ---
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    
+    // Define split points that test boundary conditions
+    // These points are chosen to split at interesting transitions
+    gsize split_points[] = {100, 200, 300, 400, vcd_len};
+    gint num_splits = sizeof(split_points) / sizeof(split_points[0]);
+    
+    gsize current_offset = 0;
+    
+    for (gint i = 0; i < num_splits; i++) {
+        gsize split_point = split_points[i];
+        if (split_point > vcd_len) split_point = vcd_len;
+        
+        gsize chunk_size = split_point - current_offset;
+        if (chunk_size == 0) continue;
+        
+        g_test_message("Feeding chunk %d: offset=%zu, size=%zu", i, current_offset, chunk_size);
+        
+        gboolean success = gw_vcd_partial_loader_feed(partial_loader, 
+                                                     vcd_contents + current_offset, 
+                                                     chunk_size, 
+                                                     &error);
+        g_assert_no_error(error);
+        g_assert_true(success);
+        
+        current_offset = split_point;
+        
+        // Get the current live view after each chunk
+        GwDumpFile *current_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+        if (current_dump != NULL) {
+            g_test_message("Intermediate dump available after chunk %d", i);
+            
+            // Convert to string format for comparison
+            gchar *current_dump_str = dump_file_to_string(current_dump);
+            g_assert_nonnull(current_dump_str);
+            
+            // For the final chunk, compare with the full golden reference
+            if (current_offset == vcd_len) {
+                g_test_message("Final chunk - comparing with golden reference");
+                g_assert_cmpstr(current_dump_str, ==, expected_dump_str);
+                g_test_message("Final equivalence test passed!");
+            }
+            
+            g_free(current_dump_str);
+        } else {
+            g_test_message("No dump available yet after chunk %d", i);
+        }
+    }
+
+    // --- 3. Verify the final result matches the golden reference ---
+    GwDumpFile *final_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(final_dump);
+
+    gchar *final_dump_str = dump_file_to_string(final_dump);
+    g_assert_nonnull(final_dump_str);
+
+    g_test_message("Comparing final incremental output with golden reference...");
+    g_assert_cmpstr(final_dump_str, ==, expected_dump_str);
+
+    g_test_message("Incremental equivalence test passed!");
+
+    // --- Cleanup ---
+    g_free(vcd_contents);
+    g_free(expected_dump_str);
+    g_free(final_dump_str);
+    g_object_unref(partial_loader);
+}
+
+
+
 
 
 int main(int argc, char *argv[])
@@ -263,6 +351,7 @@ int main(int argc, char *argv[])
     
     g_test_add_func("/vcd_partial_loader/equivalence", test_vcd_equivalence_full);
     g_test_add_func("/vcd_partial_loader/equivalence_streaming", test_vcd_equivalence_streaming);
+    g_test_add_func("/vcd_partial_loader/equivalence_incremental", test_vcd_equivalence_incremental);
     
     return g_test_run();
 }

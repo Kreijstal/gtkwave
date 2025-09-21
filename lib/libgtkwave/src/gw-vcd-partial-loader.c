@@ -3294,22 +3294,23 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     GwFacs *facs = gw_dump_file_get_facs(GW_DUMP_FILE(self->dump_file));
 
     // Perform Just-in-Time Partial Import for each signal.
-    // All vlist writers are now stored in the hash table, so we can use a single loop.
-    GHashTableIter iter;
-    gpointer key, value;
-    g_hash_table_iter_init(&iter, self->vlist_writers);
+    // Get list of symbol IDs first to avoid iteration issues
+    GList *symbol_ids = g_hash_table_get_keys(self->vlist_symbol_properties);
+    GList *iter;
 
-    while (g_hash_table_iter_next(&iter, &key, &value)) {
-        const gchar *symbol_id = (const gchar *)key;
-        GwVlistWriter *writer = (GwVlistWriter *)value;
+
+
+
+    for (iter = symbol_ids; iter != NULL; iter = iter->next) {
+        const gchar *symbol_id = (const gchar *)iter->data;
+        GwVlistWriter *writer = g_hash_table_lookup(self->vlist_writers, symbol_id);
 
         // Get symbol properties from stored hash table
         GwVcdSymbolProperties *props = g_hash_table_lookup(self->vlist_symbol_properties, symbol_id);
-        if (props == NULL) {
-            g_test_message("JIT IMPORT: No properties found for symbol %s", symbol_id);
-            continue; // Skip if properties not found
-        }
         g_test_message("JIT IMPORT: Found properties for symbol %s: vartype=%d, size=%d", symbol_id, props->vartype, props->size);
+
+        // Debug: Check if this symbol is already in signal_last_times
+        g_test_message("JIT IMPORT DEBUG: Symbol %s processing", symbol_id);
 
         // Find the corresponding GwSymbol using the fast, indexed search function
         GwSymbol *fac_symbol = NULL;
@@ -3375,10 +3376,12 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
                 gw_vlist_reader_set_position(reader, last_pos);
                 
-                // The node already has the t=-2 and t=-1 placeholders created in _vcd_partial_handle_var
-                // We need to start importing from the first vlist transition (which should be at time=0)
-                // So we set current_time to -1 (the time of the last placeholder)
+                // Get the last absolute time from the node's history, or use -1 if not found
                 GwTime current_time = -1;
+                if (node->curr != NULL) {
+                    current_time = node->curr->time;
+                }
+                g_test_message("JIT IMPORT: Starting import for %s from time %" GW_TIME_FORMAT, symbol_id, current_time);
                 
                 // Process header if this is the first read
                 if (last_pos == 0 && vlist->size >= 1) {
@@ -3474,21 +3477,31 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 guint64 *combined_value_ptr = g_new(guint64, 1);
                 *combined_value_ptr = ((guint64)vlist_type << 32) | vlist->size;
                 g_hash_table_insert(self->vlist_import_positions, g_strdup(symbol_id), combined_value_ptr);
+                
+                // Store the last absolute time for this signal for the next import
+                g_test_message("JIT IMPORT: Final time for %s: %" GW_TIME_FORMAT, symbol_id, current_time);
+                
                 g_object_unref(reader);
             }
         }
     }
 
+
+
+    g_test_message("JIT IMPORT: About to update time range");
     // Update the time range of the persistent dump file
     if (self->end_time > self->start_time) {
         GwTimeRange *time_range = gw_time_range_new(self->start_time, self->end_time);
         gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
         g_object_unref(time_range);
+        g_test_message("JIT IMPORT: Time range updated");
     }
 
+    g_test_message("JIT IMPORT: About to add endcaps");
     // Add endcaps for equivalence with original loader
     if (facs) {
         guint facs_count = gw_facs_get_length(facs);
+        g_test_message("JIT IMPORT: Adding endcaps for %d facs", facs_count);
         for (guint i = 0; i < facs_count; i++) {
             GwSymbol *sym = gw_facs_get(facs, i);
             if (sym && sym->n) {
@@ -3541,8 +3554,13 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 }
             }
         }
+        g_test_message("JIT IMPORT: Endcaps added successfully");
     }
 
+    // Clean up the symbol IDs list
+    g_list_free(symbol_ids);
+
+    g_test_message("JIT IMPORT: Completed successfully");
     // --- Just-in-Time Partial Import (Always Runs) ---
     // This block runs on every call to import new data
     

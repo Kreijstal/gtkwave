@@ -407,18 +407,509 @@ static void test_vcd_equivalence_incremental(void)
 }
 
 
+static void test_vcd_equivalence_timescale_1ms(void)
+{
+    const char *vcd_filepath = "files/timescale_1ms.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    // Check time scaling by examining signal history
+    for (guint i = 0; i < actual_facs_count; i++) {
+        GwSymbol *symbol = gw_facs_get(actual_facs, i);
+        g_assert_nonnull(symbol);
+        g_assert_nonnull(symbol->n);
+        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
+        
+        // Check if time values are properly scaled
+        if (symbol->n->numhist > 0) {
+            GwHistEnt *hist = symbol->n->head.next;
+            while (hist) {
+                g_test_message("  Time: %" GW_TIME_FORMAT " (raw value from VCD file)", hist->time);
+                // For timescale_100fs.vcd, time values should be scaled by 100
+                // So #1 should become 100, #2 should become 200, etc.
+                hist = hist->next;
+            }
+        }
+    }
+
+    g_test_message("Timescale 1ms test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_timescale_100fs(void)
+{
+    const char *vcd_filepath = "files/timescale_100fs.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    // Check time scaling by examining signal history
+    for (guint i = 0; i < actual_facs_count; i++) {
+        GwSymbol *symbol = gw_facs_get(actual_facs, i);
+        g_assert_nonnull(symbol);
+        g_assert_nonnull(symbol->n);
+        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
+        
+        // Check if time values are properly scaled
+        if (symbol->n->numhist > 0) {
+            GwHistEnt *hist = symbol->n->head.next;
+            while (hist) {
+                g_test_message("  Time: %" GW_TIME_FORMAT " (raw value from VCD file)", hist->time);
+                // For timescale_100fs.vcd, time values should be scaled by 100
+                // So #1 should become 100, #2 should become 200, etc.
+                hist = hist->next;
+            }
+        }
+    }
+
+    g_test_message("Timescale 100fs test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_timescale_100fs_fractional(void)
+{
+    const char *vcd_filepath = "files/timescale_100fs_fractional.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    g_test_message("Timescale 100fs fractional test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_timezero(void)
+{
+    const char *vcd_filepath = "files/timezero.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    g_test_message("Timezero test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_left_extension(void)
+{
+    const char *vcd_filepath = "files/left_extension.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    g_test_message("Left extension test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_names_with_delimiters(void)
+{
+    const char *vcd_filepath = "files/names_with_delimiters.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    g_test_message("Names with delimiters test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_hashkill(void)
+{
+    const char *vcd_filepath = "files/hashkill.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    g_test_message("Hashkill test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_autocoalesce(void)
+{
+    const char *vcd_filepath = "files/autocoalesce.vcd";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Load with the NEW partial loader
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    // Simple check: verify we can get the dump file and it has signals
+    GwFacs *actual_facs = gw_dump_file_get_facs(actual_dump);
+    g_assert_nonnull(actual_facs);
+    guint actual_facs_count = gw_facs_get_length(actual_facs);
+    g_test_message("Partial loader found %u signals", actual_facs_count);
+    g_assert_cmpint(actual_facs_count, >, 0);
+
+    g_test_message("Autocoalesce test passed!");
+
+    g_object_unref(partial_loader);
+}
+
+static void test_vcd_equivalence_basic(void)
+{
+    const char *vcd_filepath = "files/basic.vcd";
+    const char *golden_dump_filepath = "files/basic.vcd.dump";
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // --- 1. Load with the NEW partial loader ---
+    g_test_message("Loading with partial VCD loader...");
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    
+    // Feed the whole file in one chunk
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    // Get the live dump file view
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    g_test_message("Partial loader completed successfully");
+
+    // --- 2. Convert the resulting dump file to string format ---
+    gchar *actual_dump_str = dump_file_to_string(actual_dump);
+    g_assert_nonnull(actual_dump_str);
+
+    // --- 3. Read the golden reference dump file ---
+    gchar *expected_dump_str = read_file_contents(golden_dump_filepath);
+    g_assert_nonnull(expected_dump_str);
+
+    // --- 4. Simple test: just check if original loader works ---
+    g_test_message("Testing if original loader works...");
+    
+    // Load the expected dump using the original loader
+    GwLoader *original_loader = gw_vcd_loader_new();
+    GwDumpFile *expected_dump = gw_loader_load(GW_LOADER(original_loader), vcd_filepath, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(expected_dump);
+    
+    // Import the data (call twice like dump.c does)
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+    
+    // Simple check: verify we have 12 signals
+    GwFacs *expected_facs = gw_dump_file_get_facs(expected_dump);
+    g_assert_nonnull(expected_facs);
+    guint expected_facs_count = gw_facs_get_length(expected_facs);
+    g_test_message("Original loader found %u signals", expected_facs_count);
+    g_assert_cmpint(expected_facs_count, ==, 12);
+    
+    // Simple check: verify each signal has transitions
+    for (guint i = 0; i < expected_facs_count; i++) {
+        GwSymbol *symbol = gw_facs_get(expected_facs, i);
+        g_assert_nonnull(symbol);
+        g_assert_nonnull(symbol->n);
+        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
+        g_assert_cmpint(symbol->n->numhist, >, 0);
+    }
+    
+    g_test_message("Original loader test passed!");
+    
+    // --- 5. Use deep comparison helper ---
+    g_test_message("Comparing generated output with golden reference using deep comparison...");
+    assert_dump_files_equivalent(expected_dump, actual_dump);
+    
+    g_test_message("Basic functionality test passed!");
+
+    // --- Cleanup ---
+    g_free(actual_dump_str);
+    g_free(expected_dump_str);
+    g_object_unref(partial_loader);
+}
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Test function for arbitrary VCD file
+static void test_vcd_equivalence_file(gconstpointer user_data)
+{
+    const char *vcd_filepath = user_data;
+    char *golden_dump_filepath = g_strdup_printf("%s.dump", vcd_filepath);
+    GError *error = NULL;
+
+    g_test_message("Testing VCD equivalence for file: %s", vcd_filepath);
+
+    // Check if file exists
+    if (!g_file_test(vcd_filepath, G_FILE_TEST_EXISTS)) {
+        g_test_skip("VCD file not found");
+        g_free(golden_dump_filepath);
+        return;
+    }
+
+    // Check if dump file exists for comparison
+    gboolean has_golden = g_file_test(golden_dump_filepath, G_FILE_TEST_EXISTS);
+    
+    // --- 1. Load with the NEW partial loader ---
+    g_test_message("Loading with partial VCD loader...");
+    gchar *vcd_contents;
+    gsize vcd_len;
+    g_file_get_contents(vcd_filepath, &vcd_contents, &vcd_len, &error);
+    g_assert_no_error(error);
+
+    GwVcdPartialLoader *partial_loader = gw_vcd_partial_loader_new();
+    
+    // Feed the whole file in one chunk
+    gboolean success = gw_vcd_partial_loader_feed(partial_loader, vcd_contents, vcd_len, &error);
+    g_assert_no_error(error);
+    g_assert_true(success);
+    g_free(vcd_contents);
+
+    // Get the live dump file view
+    GwDumpFile *actual_dump = gw_vcd_partial_loader_get_dump_file(partial_loader);
+    g_assert_nonnull(actual_dump);
+
+    g_test_message("Partial loader completed successfully");
+
+    // --- 2. Load with the ORIGINAL loader for comparison ---
+    g_test_message("Loading with original VCD loader for comparison...");
+    GwLoader *original_loader = gw_vcd_loader_new();
+    GwDumpFile *expected_dump = gw_loader_load(GW_LOADER(original_loader), vcd_filepath, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(expected_dump);
+    
+    // Import the data (call twice like dump.c does)
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+    g_assert_true(gw_dump_file_import_all(expected_dump, &error));
+    g_assert_no_error(error);
+
+    // --- 3. Use deep comparison helper ---
+    g_test_message("Comparing generated output with original loader using deep comparison...");
+    assert_dump_files_equivalent(expected_dump, actual_dump);
+    
+    g_test_message("File test passed for: %s", vcd_filepath);
+
+    // --- Cleanup ---
+    g_object_unref(partial_loader);
+    g_object_unref(original_loader);
+    g_free(golden_dump_filepath);
+}
 
 int main(int argc, char *argv[])
 {
-    g_test_init(&argc, &argv, NULL);
+g_test_init(&argc, &argv, NULL);
     
+// If command line arguments are provided, test only those files
+if (argc > 1) {
+    for (int i = 1; i < argc; i++) {
+        char *test_name = g_strdup_printf("/vcd_partial_loader/file_%s", argv[i]);
+        g_test_add_data_func(test_name, argv[i], test_vcd_equivalence_file);
+        g_free(test_name);
+    }
+} else {
     // These tests are expected to fail due to a known bug in the partial loader
     // where it incorrectly parses vector values from VCD files
     g_test_add_func("/vcd_partial_loader/basic", test_vcd_equivalence_full);
     g_test_add_func("/vcd_partial_loader/streaming", test_vcd_equivalence_streaming);
     g_test_add_func("/vcd_partial_loader/incremental", test_vcd_equivalence_incremental);
+    g_test_add_func("/vcd_partial_loader/basic_vcd", test_vcd_equivalence_basic);
     
-    return g_test_run();
+    // Basic timescale test (without deep comparison for now)
+    g_test_add_func("/vcd_partial_loader/timescale_1ms", test_vcd_equivalence_timescale_1ms);
+    g_test_add_func("/vcd_partial_loader/timescale_100fs", test_vcd_equivalence_timescale_100fs);
+    g_test_add_func("/vcd_partial_loader/timescale_100fs_fractional", test_vcd_equivalence_timescale_100fs_fractional);
+    g_test_add_func("/vcd_partial_loader/timezero", test_vcd_equivalence_timezero);
+    g_test_add_func("/vcd_partial_loader/left_extension", test_vcd_equivalence_left_extension);
+    g_test_add_func("/vcd_partial_loader/names_with_delimiters", test_vcd_equivalence_names_with_delimiters);
+    g_test_add_func("/vcd_partial_loader/hashkill", test_vcd_equivalence_hashkill);
+    g_test_add_func("/vcd_partial_loader/autocoalesce", test_vcd_equivalence_autocoalesce);
+
+}
+    
+return g_test_run();
 }

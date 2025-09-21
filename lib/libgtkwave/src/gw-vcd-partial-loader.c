@@ -108,6 +108,7 @@ struct _GwVcdPartialLoader
     gboolean err;
 
     GwTime current_time;
+    GwTime current_time_raw;
 
     struct vcdsymbol *pv;
     struct vcdsymbol *rootv;
@@ -2334,6 +2335,7 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
 
 // Forward declarations for handler functions
 static void _vcd_partial_handle_timescale(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
+static void _vcd_partial_handle_timezero(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
 static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
 static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
 static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
@@ -2407,6 +2409,8 @@ static void process_vcd_token(GwVcdPartialLoader *self, const gchar *token, gsiz
     // Dispatch based on token type
     if (g_str_has_prefix(trimmed_token, "$timescale")) {
         _vcd_partial_handle_timescale(self, trimmed_token, trimmed_len, error);
+    } else if (g_str_has_prefix(trimmed_token, "$timezero")) {
+        _vcd_partial_handle_timezero(self, trimmed_token, trimmed_len, error);
     } else if (g_str_has_prefix(trimmed_token, "$scope")) {
         g_debug("Processing scope command: %.*s", (int)trimmed_len, trimmed_token);
         _vcd_partial_handle_scope(self, trimmed_token, trimmed_len, error);
@@ -2463,7 +2467,11 @@ static void _vcd_partial_handle_timescale(GwVcdPartialLoader *self, const gchar 
             char *content = g_strndup(content_start, content_len);
             char *trimmed_content = g_strstrip(content);
 
-            if (sscanf(trimmed_content, "%d%s", &time_val, time_unit) == 2) {
+            // Apply fractional timescale fix if needed
+            char *timescale_content = g_strdup(trimmed_content);
+            fractional_timescale_fix(timescale_content);
+            
+            if (sscanf(timescale_content, "%d%s", &time_val, time_unit) == 2) {
         // Parse the time unit
         GwTimeDimension dimension = GW_TIME_DIMENSION_NANO;
 
@@ -2498,6 +2506,7 @@ static void _vcd_partial_handle_timescale(GwVcdPartialLoader *self, const gchar 
                 g_free(content);
                 return;
             }
+            g_free(timescale_content);
             g_free(content);
         } else {
             g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
@@ -2507,6 +2516,48 @@ static void _vcd_partial_handle_timescale(GwVcdPartialLoader *self, const gchar 
     } else {
         g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
                    "Failed to parse timescale: %.*s", (int)len, token);
+    }
+}
+
+static void _vcd_partial_handle_timezero(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error)
+{
+    g_assert(token != NULL);
+    g_assert(error != NULL && *error == NULL);
+
+    // Extract timezero value from token like "$timezero -2 $end"
+    GwTime timezero_value = 0;
+
+    // Use sscanf to parse the timezero - look for the actual content between $timezero and $end
+    const char *content_start = strstr(token, "$timezero");
+    if (content_start) {
+        content_start += strlen("$timezero");
+        const char *content_end = strstr(content_start, "$end");
+        if (content_end) {
+            // Extract the content between $timezero and $end
+            gsize content_len = content_end - content_start;
+            char *content = g_strndup(content_start, content_len);
+            char *trimmed_content = g_strstrip(content);
+
+            if (sscanf(trimmed_content, "%" "ld" "", &timezero_value) == 1) {
+                // Apply timescale scaling to the timezero value
+                self->global_time_offset = timezero_value * self->time_scale;
+                g_test_message("DEBUG: Timezero parsed: %" GW_TIME_FORMAT " (scaled to %" GW_TIME_FORMAT ")", 
+                              timezero_value, self->global_time_offset);
+            } else {
+                g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                           "Failed to parse timezero content: %s", trimmed_content);
+                g_free(content);
+                return;
+            }
+            g_free(content);
+        } else {
+            g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                       "Missing $end in timezero command");
+            return;
+        }
+    } else {
+        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                   "Failed to parse timezero: %.*s", (int)len, token);
     }
 }
 
@@ -2801,6 +2852,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     v->narray[0]->curr = h_minus_1; // CRITICAL: curr must point to t=-1 entry
     v->narray[0]->numhist = 0; // Start with 0 entries (placeholders are not counted in numhist)
     v->narray[0]->last_time = -1; // Initialize last_time for delta calculations
+    v->narray[0]->last_time_raw = -1; // Initialize last_time_raw for delta calculations
     
     g_test_message("DEBUG: Created node for %s: head.next.time=%" GW_TIME_FORMAT ", curr.time=%" GW_TIME_FORMAT ", numhist=%d", 
                   v->name, v->narray[0]->head.next->time, v->narray[0]->curr->time, v->narray[0]->numhist);
@@ -2872,7 +2924,10 @@ static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gcha
 
     // Skip the '#' character and parse the time
     if (sscanf(token + 1, "%" "ld" "", &time_value) == 1) {
-        self->current_time = time_value;
+        // Store raw time value for delta calculations
+        self->current_time_raw = time_value;
+        // Apply timescale scaling to the time value and add global time offset
+        self->current_time = (time_value * self->time_scale) + self->global_time_offset;
 
         // Update start and end time tracking
         if (self->start_time == -1 || time_value < self->start_time) {
@@ -3010,12 +3065,13 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     g_debug("Processing value change for symbol %s, narray[0]=%p, numhist=%d, vartype=%d, id=%s", symbol->name, symbol->narray[0], symbol->narray[0]->numhist, symbol->vartype, symbol->id);
     
     // Calculate time delta from last change for this signal
+    // Use raw time values (without global offset) for delta calculation to avoid overflow
     unsigned int time_delta;
-    if (symbol->narray[0]->last_time == -1) {
-        // First transition for this signal: time_delta = current_time - (-1)
-        time_delta = (unsigned int)(self->current_time - symbol->narray[0]->last_time);
+    if (symbol->narray[0]->last_time_raw == -1) {
+        // First transition for this signal: time_delta = current_time_raw - (-1)
+        time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
     } else {
-        time_delta = (unsigned int)(self->current_time - symbol->narray[0]->last_time);
+        time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
     }
     
     g_test_message("DEBUG: time_vlist_count=%u, numhist=%d, time_delta=%u, current_time=%" GW_TIME_FORMAT, 
@@ -3023,9 +3079,11 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
 
     // Store original last_time for debug message before updating
     GwTime original_last_time = symbol->narray[0]->last_time;
+    GwTime original_last_time_raw = symbol->narray[0]->last_time_raw;
     
-    // Update the node's time tracking
+    // Update the node's time tracking (both raw and scaled)
     symbol->narray[0]->last_time = self->current_time;
+    symbol->narray[0]->last_time_raw = self->current_time_raw;
 
     g_test_message("Processing value change for symbol %s (id: %s), time: %" GW_TIME_FORMAT ", last_time: %" GW_TIME_FORMAT ", time_delta: %u, value: %c, writer=%p, vartype=%d, size=%d", 
             symbol->name, identifier, self->current_time, original_last_time, time_delta, value_char, writer, symbol->vartype, symbol->size);
@@ -3051,9 +3109,45 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                 self->current_time = original_time;
             }
             break;
+        case 'l':
+        case 'L':
+            if (writer != NULL) {
+                guint32 accum = RCV_L | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
         case '1':
             if (writer != NULL) {
                 guint32 accum = (time_delta << 2) | (1 << 1);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'u':
+        case 'U':
+            if (writer != NULL) {
+                guint32 accum = RCV_U | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'w':
+        case 'W':
+            if (writer != NULL) {
+                guint32 accum = RCV_W | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
@@ -3066,6 +3160,29 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'X':
             if (writer != NULL) {
                 guint32 accum = RCV_X | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case '-':
+            if (writer != NULL) {
+                guint32 accum = RCV_D | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'h':
+        case 'H':
+            if (writer != NULL) {
+                guint32 accum = RCV_H | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
@@ -3538,6 +3655,12 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
         gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
         g_object_unref(time_range);
         g_test_message("JIT IMPORT: Time range updated");
+    } else if (self->start_time == -1 && self->end_time == -1) {
+        // Header-only parsing - no time values yet, set default time range
+        GwTimeRange *time_range = gw_time_range_new(0, 1000); // Default 0-1000 time units
+        gw_dump_file_set_time_range(GW_DUMP_FILE(self->dump_file), time_range);
+        g_object_unref(time_range);
+        g_test_message("JIT IMPORT: Default time range set for header-only parsing");
         }
 
         // Clean up the symbol IDs list
@@ -3556,4 +3679,20 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     return GW_DUMP_FILE(self->dump_file);
 
 
+}
+
+/**
+ * gw_vcd_partial_loader_is_header_parsed:
+ * @self: A #GwVcdPartialLoader.
+ *
+ * Checks if the VCD header has been fully parsed. This is useful for interactive
+ * sessions where the header must be parsed before building the user interface.
+ *
+ * Returns: %TRUE if the header has been parsed, %FALSE otherwise.
+ */
+gboolean gw_vcd_partial_loader_is_header_parsed(GwVcdPartialLoader *self)
+{
+    g_return_val_if_fail(GW_IS_VCD_PARTIAL_LOADER(self), FALSE);
+    
+    return self->header_over;
 }

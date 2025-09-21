@@ -2008,11 +2008,8 @@ savefile_bail:
         get_window_xypos(&dummy_x, &dummy_y);
     }
 
-    // Import signals for interactive VCD mode
-    if (GLOBALS->loaded_file_type == VCD_PARTIAL_FILE) {
-        fprintf(stderr, "DEBUG: Importing signals for interactive VCD mode...\n");
-        analyzer_import_all_signals();
-    }
+    // Import signals for interactive VCD mode is handled by vcd_partial_adapter
+    // after the UI is fully initialized to ensure proper SST table population
 
     init_busy();
 

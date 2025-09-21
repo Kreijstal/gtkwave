@@ -4,8 +4,10 @@
 #include "globals.h"
 #include "wavewindow.h"
 #include "analyzer.h"
+#include "treesearch.h"
 #include <unistd.h>
 #include <string.h>
+#include "savefile.h"
 
 #define WAVE_PARTIAL_VCD_RING_BUFFER_SIZE (1024 * 1024)
 
@@ -34,6 +36,74 @@ static guint32 get_32(guint8 *base, gssize offset)
 
 // Timer callback that reads from shared memory and feeds the partial loader
 // Timer callback to import signals after UI initialization
+static gboolean refresh_signal_store_idle(gpointer user_data)
+{
+    fprintf(stderr, "DEBUG: Refreshing signal store for interactive mode...\n");
+    fprintf(stderr, "DEBUG: sig_store_treesearch_gtk2_c_1: %p, dnd_sigview: %p\n",
+            GLOBALS->sig_store_treesearch_gtk2_c_1, GLOBALS->dnd_sigview);
+    
+    // Get the complete tree from the dump file (includes newly imported signals)
+    GwTree *tree = gw_dump_file_get_tree(GLOBALS->dump_file);
+    if (tree) {
+        GwTreeNode *tree_root = gw_tree_get_root(tree);
+        if (tree_root) {
+            // Update the signal root to the complete tree from dump file
+            GLOBALS->sig_root_treesearch_gtk2_c_1 = tree_root;
+            
+            // Repopulate the signal store with updated signal list
+            fill_sig_store();
+            fprintf(stderr, "DEBUG: Signal store refreshed successfully\n");
+            
+            // Force the tree view to refresh
+            if (GLOBALS->dnd_sigview) {
+                fprintf(stderr, "DEBUG: Forcing tree view refresh\n");
+                
+                // Check if tree view is properly connected to the signal store
+                GtkTreeModel *current_model = gtk_tree_view_get_model(GTK_TREE_VIEW(GLOBALS->dnd_sigview));
+                fprintf(stderr, "DEBUG: Tree view model: %p, Signal store: %p\n", current_model, GLOBALS->sig_store_treesearch_gtk2_c_1);
+                
+                if (current_model != GTK_TREE_MODEL(GLOBALS->sig_store_treesearch_gtk2_c_1)) {
+                    fprintf(stderr, "DEBUG: WARNING: Tree view is not connected to current signal store!\n");
+                    fprintf(stderr, "DEBUG: Reconnecting tree view to signal store\n");
+                    gtk_tree_view_set_model(GTK_TREE_VIEW(GLOBALS->dnd_sigview), GTK_TREE_MODEL(GLOBALS->sig_store_treesearch_gtk2_c_1));
+                }
+                
+                gtk_widget_queue_draw(GLOBALS->dnd_sigview);
+                
+                // Also refresh the entire UI to ensure changes are visible
+                redraw_signals_and_waves();
+                
+                // Force complete UI rebuild by triggering a reload-like operation
+                // This ensures the SST pane is properly refreshed like in normal mode
+                if (GLOBALS->expanderwindow && GLOBALS->sstpane && GLOBALS->sst_vpaned) {
+                    fprintf(stderr, "DEBUG: Forcing complete SST pane refresh\n");
+                    
+                    // Store current state
+                    gboolean was_expanded = gtk_expander_get_expanded(GTK_EXPANDER(GLOBALS->expanderwindow));
+                    gint pane_pos = gtk_paned_get_position(GTK_PANED(GLOBALS->sst_vpaned));
+                    
+                    // Hide and show to force refresh
+                    gtk_widget_hide(GLOBALS->expanderwindow);
+                    gtk_widget_show(GLOBALS->expanderwindow);
+                    
+                    // Restore state
+                    gtk_expander_set_expanded(GTK_EXPANDER(GLOBALS->expanderwindow), was_expanded);
+                    gtk_paned_set_position(GTK_PANED(GLOBALS->sst_vpaned), pane_pos);
+                    
+                    // Force complete redraw of the entire UI
+                    gtk_widget_queue_draw(GTK_WIDGET(GLOBALS->mainwindow));
+                }
+            }
+        } else {
+            fprintf(stderr, "DEBUG: Tree root is NULL\n");
+        }
+    } else {
+        fprintf(stderr, "DEBUG: Tree is NULL\n");
+    }
+    
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean import_signals_timeout_callback(gpointer user_data)
 {
     fprintf(stderr, "DEBUG: Importing signals into UI...\n");
@@ -47,6 +117,17 @@ static gboolean import_signals_timeout_callback(gpointer user_data)
     }
     analyzer_import_all_signals();
     fprintf(stderr, "DEBUG: Signal import completed\n");
+    
+    // Schedule signal store refresh on the main thread to ensure UI updates properly
+    if (GLOBALS->dump_file && GLOBALS->sig_store_treesearch_gtk2_c_1) {
+        fprintf(stderr, "DEBUG: Scheduling signal store refresh via g_idle_add\n");
+        g_idle_add(refresh_signal_store_idle, NULL);
+    } else {
+        fprintf(stderr, "DEBUG: Cannot refresh signal store - missing required globals\n");
+        fprintf(stderr, "DEBUG: dump_file: %p, sig_store_treesearch_gtk2_c_1: %p\n",
+                GLOBALS->dump_file, GLOBALS->sig_store_treesearch_gtk2_c_1);
+    }
+    
     return G_SOURCE_REMOVE; // Run only once
 }
 

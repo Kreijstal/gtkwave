@@ -130,6 +130,9 @@ void fill_sig_store(void)
     GwTreeNode *t_prev = NULL;
     GtkTreeIter iter;
 
+    fprintf(stderr, "DEBUG: fill_sig_store called\n");
+    fprintf(stderr, "DEBUG: sig_root_treesearch_gtk2_c_1: %p\n", GLOBALS->sig_root_treesearch_gtk2_c_1);
+
     if (GLOBALS->selected_sig_name) {
         free_2(GLOBALS->selected_sig_name);
         GLOBALS->selected_sig_name = NULL;
@@ -139,20 +142,29 @@ void fill_sig_store(void)
     gtk_list_store_clear(GLOBALS->sig_store_treesearch_gtk2_c_1);
 
     GwFacs *facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+    fprintf(stderr, "DEBUG: dump_file: %p, facs: %p\n", GLOBALS->dump_file, facs);
+    
+    if (facs) {
+        fprintf(stderr, "DEBUG: Number of facilities: %u\n", gw_facs_get_length(facs));
+    }
+    
     gboolean has_supplemental_datatypes =
         gw_dump_file_has_supplemental_datatypes(GLOBALS->dump_file);
     gboolean has_supplemental_vartypes = gw_dump_file_has_supplemental_vartypes(GLOBALS->dump_file);
 
+    fprintf(stderr, "DEBUG: Starting signal iteration\n");
     for (t = GLOBALS->sig_root_treesearch_gtk2_c_1; t != NULL; t = t->next) {
         int i = t->t_which;
         char *s, *tmp2;
         int vartype;
         int vardir;
-        int is_tname = 0;
-        int wrexm;
         int vardt;
         unsigned int varxt;
         char *varxt_pnt;
+        int is_tname = 0;
+        int wrexm;
+        
+        fprintf(stderr, "DEBUG: Processing tree node: %s, t_which: %d\n", t->name, t->t_which);
 
         if (i < 0) {
             t_prev = NULL;
@@ -224,6 +236,7 @@ void fill_sig_store(void)
              ((GLOBALS->filter_typ_treesearch_gtk2_c_1 == vardir) ^
               GLOBALS->filter_typ_polarity_treesearch_gtk2_c_1) &&
              (wrexm || (wrexm = wave_regex_match(t->name, WAVE_REGEX_TREE))))) {
+            fprintf(stderr, "DEBUG: Adding signal to store: %s\n", s);
             gtk_list_store_prepend(GLOBALS->sig_store_treesearch_gtk2_c_1, &iter);
             if (is_tname) {
                 gtk_list_store_set(GLOBALS->sig_store_treesearch_gtk2_c_1,
@@ -524,7 +537,10 @@ static void XXX_select_row_callback(GtkTreeModel *model, GtkTreePath *path)
     char hier_suffix[2];
     GtkTreePath *path2;
 
+    fprintf(stderr, "DEBUG: XXX_select_row_callback called\n");
+    
     if (!gtk_tree_model_get_iter(model, &iter, path)) {
+        fprintf(stderr, "DEBUG: Failed to get iter for path\n");
         return; /* path describes a non-existing row - should not happen */
     }
 
@@ -564,9 +580,20 @@ static void XXX_select_row_callback(GtkTreeModel *model, GtkTreePath *path)
 
     t = gctr[depth - 1];
     DEBUG(printf("TS: %08x %s\n", t, t->name));
+    fprintf(stderr, "DEBUG: Selected tree node: %s, t_which: %d\n", t->name, t->t_which);
+    fprintf(stderr, "DEBUG: Tree node child: %p\n", t->child);
+    
     GLOBALS->sst_sig_root_treesearch_gtk2_c_1 = t;
     GLOBALS->sig_root_treesearch_gtk2_c_1 = t->child;
+    
+    if (t->child) {
+        fprintf(stderr, "DEBUG: Child node name: %s, t_which: %d\n", t->child->name, t->child->t_which);
+    } else {
+        fprintf(stderr, "DEBUG: No child nodes\n");
+    }
+    
     fill_sig_store();
+    fprintf(stderr, "DEBUG: fill_sig_store completed\n");
 }
 
 static void XXX_unselect_row_callback(GtkTreeModel *model, GtkTreePath *path)
@@ -574,7 +601,10 @@ static void XXX_unselect_row_callback(GtkTreeModel *model, GtkTreePath *path)
     GtkTreeIter iter;
     GwTreeNode *t;
 
+    fprintf(stderr, "DEBUG: XXX_unselect_row_callback called\n");
+    
     if (!gtk_tree_model_get_iter(model, &iter, path)) {
+        fprintf(stderr, "DEBUG: Failed to get iter for path in unselect\n");
         return; /* path describes a non-existing row - should not happen */
     }
 
@@ -677,6 +707,8 @@ static gboolean XXX_view_selection_func(GtkTreeSelection *selection,
     (void)selection;
     (void)userdata;
 
+    fprintf(stderr, "DEBUG: XXX_view_selection_func called, path_currently_selected: %d\n", path_currently_selected);
+    
     if (!path_currently_selected) {
         XXX_select_row_callback(model, path);
     } else {
@@ -1273,6 +1305,7 @@ GtkWidget *treeboxframe(const char *title)
                 /* fallthrough */
             case VCD_RECODER_FILE:
             case DUMPLESS_FILE:
+            case VCD_PARTIAL_FILE:
                 column = gtk_tree_view_column_new_with_attributes(
                     (has_supplemental_datatypes && has_supplemental_vartypes) ? "VType" : "Type",
                     renderer,

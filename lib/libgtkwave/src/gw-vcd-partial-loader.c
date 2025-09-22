@@ -165,9 +165,6 @@ struct _GwVcdPartialLoader
 
     /* State for handling $dumpvars block */
     gboolean in_dumpvars_block;
-
-    /* NEW: Hash table for alias management */
-    GHashTable *id_to_symbol_list_hash;
 };
 
 G_DEFINE_TYPE(GwVcdPartialLoader, gw_vcd_partial_loader, GW_TYPE_LOADER)
@@ -1900,7 +1897,7 @@ static void treenamefix_str(char *s, char delimiter)
 
 static void vcd_partial_build_symbols(GwVcdPartialLoader *self)
 {
-    struct vcdsymbol *v, *vprime;
+    struct vcdsymbol *v;
     GSList *sym_chain = NULL;
 
     // The full hierarchical names have already been created in _vcd_partial_handle_var.
@@ -1915,18 +1912,8 @@ static void vcd_partial_build_symbols(GwVcdPartialLoader *self)
             continue;
         }
 
-        // Check for duplicate IDs (aliasing)
-        if ((vprime = bsearch_vcd(self, v->id, strlen(v->id))) != v && vprime != NULL) {
-            if (v->size == vprime->size) {
-                // This is an alias. We need to point our node's data to the original's.
-                GwNode *n = s->n;
-                GwNode *n2 = vprime->sym_chain->n;
-                n->curr = (GwHistEnt *)n2; // Point to the original's history
-                n->numhist = n2->numhist;
-            } else {
-                fprintf(stderr, "ERROR: Duplicate IDs with differing width: %s %s\n", v->name, vprime->name);
-            }
-        }
+        // The new design handles aliasing by giving each signal its own vlist writer
+        // and history. The old logic of linking aliased nodes is no longer needed.
 
         // Re-link the vector chains
         if ((v->size == 1) && (v->root)) {
@@ -2205,11 +2192,6 @@ static void gw_vcd_partial_loader_finalize(GObject *object)
         self->vlist_import_positions = NULL;
     }
 
-    if (self->id_to_symbol_list_hash != NULL) {
-        g_hash_table_destroy(self->id_to_symbol_list_hash);
-        self->id_to_symbol_list_hash = NULL;
-    }
-
 
     G_OBJECT_CLASS(gw_vcd_partial_loader_parent_class)->finalize(object);
 }
@@ -2279,9 +2261,6 @@ static void gw_vcd_partial_loader_init(GwVcdPartialLoader *self)
     self->in_dumpvars_block = FALSE;
     self->time_vlist = gw_vlist_create(sizeof(GwTime));
     self->time_vlist_count = 0;
-
-    /* NEW: Initialize alias hash table */
-    self->id_to_symbol_list_hash = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_slist_free);
 }
 
 
@@ -2295,7 +2274,6 @@ static void _vcd_partial_handle_timezero(GwVcdPartialLoader *self, const gchar *
 static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
 static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
 static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
-static void _vcd_partial_write_value_to_symbol(GwVcdPartialLoader *self, struct vcdsymbol *symbol, char value_char, const char *value_buffer, GError **error);
 static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error);
 
 // State machine for handling $dumpvars block
@@ -2861,11 +2839,6 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), combined_value);
     //g_test_message("Initialized import position for symbol %s: combined_value=%lu", var_id, *combined_value);
 
-    /* Add to alias hash table */
-    GSList *symbol_list = g_hash_table_lookup(self->id_to_symbol_list_hash, v->id);
-    g_hash_table_remove(self->id_to_symbol_list_hash, v->id);
-    symbol_list = g_slist_prepend(symbol_list, v);
-    g_hash_table_insert(self->id_to_symbol_list_hash, g_strdup(v->id), symbol_list);
 }
 
 static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error)
@@ -2904,85 +2877,6 @@ static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gcha
     }
 }
 
-static void _vcd_partial_write_value_to_symbol(GwVcdPartialLoader *self, struct vcdsymbol *symbol, char value_char, const char *value_buffer, GError **error)
-{
-    // Get the vlist writer for this specific symbol
-    GwVlistWriter *writer = g_hash_table_lookup(self->vlist_writers, symbol->id);
-    if (!writer) {
-        // This should not happen if initialization is correct
-        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN, "Could not find vlist writer for symbol ID: %s", symbol->id);
-        return;
-    }
-
-    // Calculate time delta for this specific signal
-    unsigned int time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
-    symbol->narray[0]->last_time_raw = self->current_time_raw;
-
-    // This block will now operate on the 'writer', 'time_delta', and 'value_buffer'
-    // that were passed into this helper function.
-    switch (value_char) {
-        case '0':
-        case '1': {
-            guint32 accum = (time_delta << 2) | ((value_char & 1) << 1);
-            gw_vlist_writer_append_uv32(writer, accum);
-            break;
-        }
-        case 'x':
-        case 'X': {
-             guint32 accum = RCV_X | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case 'z':
-        case 'Z': {
-             guint32 accum = RCV_Z | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case 'h':
-        case 'H': {
-             guint32 accum = RCV_H | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case 'u':
-        case 'U': {
-             guint32 accum = RCV_U | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case 'w':
-        case 'W': {
-             guint32 accum = RCV_W | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case 'l':
-        case 'L': {
-             guint32 accum = RCV_L | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case '-': {
-             guint32 accum = RCV_D | (time_delta << 4);
-             gw_vlist_writer_append_uv32(writer, accum);
-             break;
-        }
-        case 'b':
-        case 'B':
-        case 'r':
-        case 'R':
-        case 's':
-        case 'S':
-            // Handle binary, real, and string values
-            process_binary_stream(self, writer, value_buffer, strlen(value_buffer), symbol, time_delta, error);
-            break;
-        default:
-            // Do nothing for unknown value types, as in the original code
-            break;
-    }
-}
-
 static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error)
 {
     g_assert(token != NULL);
@@ -3000,6 +2894,13 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     GwTime original_time = self->current_time;
     if (self->in_dumpvars_block) {
         self->current_time = 0;
+    }
+
+    // Parse value change from token like "1!" or "b1010 #"
+    if (len < 2) {
+        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                   "Invalid value change: %.*s", (int)len, token);
+        return;
     }
 
     char value_char = token[0];
@@ -3050,29 +2951,238 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         g_strlcpy(identifier, token + 1, MIN(id_len + 1, sizeof(identifier)));
     }
 
-    // --- REPLACEMENT LOGIC ---
-    // Instead of searching for one symbol, get the list of all symbols for this ID.
-    GSList *symbol_list = g_hash_table_lookup(self->id_to_symbol_list_hash, identifier);
 
-    if (symbol_list == NULL) {
-        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN, "Unknown symbol identifier: '%s'", identifier);
+
+    // Look up symbol by identifier
+    struct vcdsymbol *symbol = NULL;
+    struct vcdsymbol *curr = self->vcdsymroot;
+    while (curr != NULL) {
+        if (g_strcmp0(curr->id, identifier) == 0) {
+            symbol = curr;
+            break;
+        }
+        curr = curr->next;
+    }
+
+    if (symbol == NULL) {
+        // Check if identifier is empty (just newline)
+        if (identifier[0] == '\0') {
+            g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                       "Empty symbol identifier in value change: '%.*s'", (int)len, token);
+        } else {
+            g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                       "Unknown symbol identifier: '%s' in token: '%.*s'", identifier, (int)len, token);
+        }
         return;
     }
 
-    // Iterate through the list and write the value to each aliased symbol.
-    for (GSList *iter = symbol_list; iter != NULL; iter = g_slist_next(iter)) {
-        struct vcdsymbol *current_symbol = (struct vcdsymbol *)iter->data;
-        _vcd_partial_write_value_to_symbol(self, current_symbol, value_char, value_buffer, error);
-
-        if (*error) {
-            // Propagate error and stop
-            return;
-        }
+    // Get the vlist writer for this symbol from the hash table
+    GwVlistWriter *writer = g_hash_table_lookup(self->vlist_writers, identifier);
+    if (writer == NULL) {
+        g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                   "Could not find vlist writer for symbol ID: %s", identifier);
+        return;
     }
 
-    if (self->in_dumpvars_block) {
-        self->current_time = original_time;
+    // Calculate time delta from last change for this signal (counter-based for vlist)
+    g_assert(symbol != NULL);
+    g_assert(symbol->narray != NULL);
+    g_assert(symbol->narray[0] != NULL);
+
+    // Calculate time delta from last change for this signal
+    // Use raw time values (without global offset) for delta calculation to avoid overflow
+    unsigned int time_delta;
+    if (symbol->narray[0]->last_time_raw == -1) {
+        // First transition for this signal: time_delta = current_time_raw - (-1)
+        time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
+    } else {
+        time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
     }
+
+    // Store original last_time for debug message before updating
+    GwTime original_last_time = symbol->narray[0]->last_time;
+    GwTime original_last_time_raw = symbol->narray[0]->last_time_raw;
+
+    // Update the node's time tracking (both raw and scaled)
+    symbol->narray[0]->last_time = self->current_time;
+    symbol->narray[0]->last_time_raw = self->current_time_raw;
+
+    g_test_message("Processing value change for symbol %s (id: %s), time: %" GW_TIME_FORMAT ", last_time: %" GW_TIME_FORMAT ", time_delta: %u, value: %c, writer=%p, vartype=%d, size=%d",
+            symbol->name, identifier, self->current_time, original_last_time, time_delta, value_char, writer, symbol->vartype, symbol->size);
+
+
+
+
+
+
+
+    // Handle different value types
+    switch (value_char) {
+        case '0':
+            if (writer != NULL) {
+                guint32 accum = (time_delta << 2) | (0 << 1);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'l':
+        case 'L':
+            if (writer != NULL) {
+                guint32 accum = RCV_L | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case '1':
+            if (writer != NULL) {
+                guint32 accum = (time_delta << 2) | (1 << 1);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'u':
+        case 'U':
+            if (writer != NULL) {
+                guint32 accum = RCV_U | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'w':
+        case 'W':
+            if (writer != NULL) {
+                guint32 accum = RCV_W | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'x':
+        case 'X':
+            if (writer != NULL) {
+                guint32 accum = RCV_X | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case '-':
+            if (writer != NULL) {
+                guint32 accum = RCV_D | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'h':
+        case 'H':
+            if (writer != NULL) {
+                guint32 accum = RCV_H | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'z':
+        case 'Z':
+            if (writer != NULL) {
+                guint32 accum = RCV_Z | (time_delta << 4);
+                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                gw_vlist_writer_append_uv32(writer, accum);
+            }
+            // Restore original time after processing value change (if we modified it for dumpvars)
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
+            }
+            break;
+        case 'b':
+        case 'B':
+        case 'r':
+        case 'R':
+        case 's':
+        case 'S':
+            // Handle binary, real, and string values
+            {
+                gchar *vector = g_alloca(len + 1); /* +1 for null terminator */
+                gint vlen;
+
+                if (value_char == 'b' || value_char == 'B' || value_char == 'r' || value_char == 'R') {
+                    // For binary and real values, use the extracted value
+                    if (value_buffer[0] != '\0') {
+                        strcpy(vector, value_buffer);
+                        vlen = strlen(value_buffer);
+                    } else {
+                        // Fallback: use everything after value_char, but limit to available space
+                        g_strlcpy(vector, token + 1, len + 1);
+                        vlen = strlen(vector);
+                    }
+
+                    // Restore original time after processing value change (if we modified it for dumpvars)
+                    if (self->in_dumpvars_block) {
+                        self->current_time = original_time;
+                    }
+                } else {
+                    // For string values, extract the value part (before VCD identifier)
+                    g_debug("Processing string value: token=%s, len=%zu", token, len);
+                    const char *value_start = token + 1;
+                    const char *id_start = strchr(value_start, ' ');
+                    if (id_start != NULL) {
+                        // String value is before the space, identifier after
+                        gsize value_len = id_start - value_start;
+                        g_strlcpy(vector, value_start, MIN(value_len + 1, len + 1));
+                    } else {
+                        // No space found, use everything after 's' but before newline/%
+                        gsize value_len = 0;
+                        for (gsize i = 1; i < len; i++) {
+                            if (token[i] == '\n' || token[i] == '\r' || token[i] == '%') {
+                                break;
+                            }
+                            value_len++;
+                        }
+                        g_strlcpy(vector, value_start, MIN(value_len + 1, len + 1));
+                    }
+                    vlen = strlen(vector);
+                }
+
+                g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
+                              symbol->name, identifier, vector, writer);
+                process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
+            }
+            break;
+        default:
+            g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
+                       "Unknown value type: %c", value_char);
+    }
+
+
 }
 
 

@@ -401,7 +401,7 @@ static void create_sorted_table(GwVcdPartialLoader *self)
         vcd_distance = self->vcd_maxid - self->vcd_minid + 1;
 
 
-        if ((vcd_distance <= VCD_INDEXSIZ) || !self->vcd_hash_kill) {
+        if (vcd_distance <= VCD_INDEXSIZ) {
             self->symbols_indexed = g_new0(struct vcdsymbol *, vcd_distance);
 
             v = self->vcdsymroot;
@@ -3487,13 +3487,19 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         } else {
                             // Vector value (type 'B')
                             hent->v.h_vector = g_malloc(props->size);
-                            for (gint i = 0; i < props->size; i++) {
-                                if (i < (gint)strlen(value_str)) {
-                                    hent->v.h_vector[i] = gw_bit_from_char(value_str[i]);
-                                } else {
-                                    // Extend with zeros if the string is shorter than expected size
-                                    hent->v.h_vector[i] = GW_BIT_0;
-                                }
+                            gint val_len = strlen(value_str);
+                            gint copy_len = MIN(val_len, props->size);
+                            gint offset = (val_len > props->size) ? (val_len - props->size) : 0;
+                            gint pad_len = props->size - copy_len;
+
+                            // Pad with '0' on the left (MSB)
+                            for (gint i = 0; i < pad_len; i++) {
+                                hent->v.h_vector[i] = GW_BIT_0;
+                            }
+
+                            // Copy the actual value
+                            for (gint i = 0; i < copy_len; i++) {
+                                hent->v.h_vector[pad_len + i] = gw_bit_from_char(value_str[i + offset]);
                             }
                         }
 

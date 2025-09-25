@@ -25,6 +25,7 @@ libgtkwave_tests = [
     'test-gw-vlist-packer',
     'test-gw-vlist-writer',
     'test-gw-vlist',
+    'test-custom-vcd-parser',
 ]
 
 foreach test : libgtkwave_tests

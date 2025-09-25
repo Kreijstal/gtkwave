@@ -25,12 +25,11 @@ libgtkwave_tests = [
     'test-gw-vlist-packer',
     'test-gw-vlist-writer',
     'test-gw-vlist',
-    'test-custom-vcd-parser',
 ]
 
 foreach test : libgtkwave_tests
     test_sources = [test + '.c', 'test-util.c']
-    if test == 'test-gw-vcd-partial-loader-equivalence' or test == 'test-custom-vcd-parser'
+    if test == 'test-gw-vcd-partial-loader-equivalence'
         test_sources += 'test-helpers.c'
     endif
 

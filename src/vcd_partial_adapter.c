@@ -198,10 +198,59 @@ static gboolean kick_timeout_callback(gpointer user_data)
 
     // If we processed data, update the UI
     if (data_processed) {
+      //  printf("WE HAVE PROCESSED!\n");
         // Update the global dump file reference
         GLOBALS->dump_file = gw_vcd_partial_loader_get_dump_file(the_loader);
 
-        if (GLOBALS->dump_file) {
+        /* List all signals from the dump file for debugging */
+       /* if (GLOBALS->dump_file) {
+            GwFacs *facs = gw_dump_file_get_facs(GLOBALS->dump_file);
+            if (facs) {
+                guint num_facs = gw_facs_get_length(facs);
+                printf("DUMP FILE SIGNALS: count=%u\n", num_facs);
+                for (guint fi = 0; fi < num_facs; fi++) {
+                    GwSymbol *sym = gw_facs_get(facs, fi);
+                    if (!sym) {
+                        printf("  %u: <null symbol>\n", fi);
+                        continue;
+                    }
+                    GwNode *n = sym->n;
+                    if (!n) {
+                        printf("  %u: <symbol without node>\n", fi);
+                        continue;
+                    }
+                    const char *name = n->nname ? n->nname : "<unnamed>";
+                    printf("  %u: %s (node=%p, numhist=%d)\n", fi, name, (void*)n, n->numhist);
+
+                    /* If this is the signal we're interested in, print its first two history values (positive-time entries) * /
+                    if (strcmp(name, "mysim.sine_wave") == 0) {
+                        int printed = 0;
+                        for (GwHistEnt *he = &n->head; he && printed < 2; he = he->next) {
+                            if (he->time < 0) /* skip placeholder entries * / continue;
+
+                            if (he->flags & GW_HIST_ENT_FLAG_REAL) {
+                                printf("    hist %d: time=%" GW_TIME_FORMAT " real=%f\n", printed + 1, he->time, he->v.h_double);
+                            } else if (he->flags & GW_HIST_ENT_FLAG_STRING) {
+                                printf("    hist %d: time=%" GW_TIME_FORMAT " string=%s\n", printed + 1, he->time, he->v.h_vector ? he->v.h_vector : "<null>");
+                            } else if (he->v.h_vector) {
+                                /* vector value stored as a C string of bits/characters * /
+                                printf("    hist %d: time=%" GW_TIME_FORMAT " vector=%s\n", printed + 1, he->time, he->v.h_vector);
+                            } else {
+                                printf("    hist %d: time=%" GW_TIME_FORMAT " val=%u\n", printed + 1, he->time, (unsigned)he->v.h_val);
+                            }
+                            printed++;
+                        }
+                        if (printed == 0) {
+                            printf("    mysim.sine_wave: no positive-time history entries available\n");
+                        } else if (printed == 1) {
+                            printf("    mysim.sine_wave: only 1 positive-time history entry found\n");
+                        }
+                    }
+                }
+            } else {
+                printf("DUMP FILE: no facs available\n");
+            }
+            */
             // Update the time range
             GwTimeRange *range = gw_dump_file_get_time_range(GLOBALS->dump_file);
             if (range) {

@@ -90,12 +90,18 @@ static void dump_node(GwDumpFile *file, GwNode *node)
 
     g_print("        extvals: %d\n", node->extvals);
     g_print("        msi, lsi: %d, %d\n", node->msi, node->lsi);
-    g_print("        numhist: %d\n", node->numhist);
+    GwNodeHistory *history = gw_node_get_history_snapshot(node);
+    if (!history) {
+        g_printerr("Could not get history for node %s\n", node->nname);
+        return;
+    }
+
+    g_print("        numhist: %d\n", history->numhist);
 
     g_print("        transitions:\n");
 
     // TODO: use gw_hist_ent_to_string
-    for (GwHistEnt *iter = &node->head; iter != NULL; iter = iter->next) {
+    for (GwHistEnt *iter = &history->head; iter != NULL; iter = iter->next) {
         g_print("            ");
         if (iter->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
             if (iter->flags & GW_HIST_ENT_FLAG_STRING) {
@@ -122,6 +128,7 @@ static void dump_node(GwDumpFile *file, GwNode *node)
         }
         g_print(" @ %" GW_TIME_FORMAT "\n", iter->time);
     }
+    gw_node_history_unref(history);
 }
 
 static void dump_facs(GwDumpFile *file)
@@ -152,15 +159,22 @@ static int pointer_strcmp(const gchar **a, const gchar **b)
 static void dump_aliases(GwDumpFile *file)
 {
     // Build a hash table to collect nodes with the same second GwHistEnt after head.
-
     GHashTable *next_pointers = g_hash_table_new(g_direct_hash, g_direct_equal);
+    GSList *history_snapshots = NULL; // Keep snapshots alive
 
     GwFacs *facs = gw_dump_file_get_facs(file);
     for (guint i = 0; i < gw_facs_get_length(facs); i++) {
         GwSymbol *symbol = gw_facs_get(facs, i);
         GwNode *node = symbol->n;
 
-        GwHistEnt *h = node->head.next;
+        GwNodeHistory *history = gw_node_get_history_snapshot(node);
+        if (!history) {
+            continue;
+        }
+        history_snapshots = g_slist_prepend(history_snapshots, history);
+
+        // Aliased nodes will share the same history object, so their head.next will be the same.
+        GwHistEnt *h = history->head.next;
 
         GSList *old = g_hash_table_lookup(next_pointers, h);
         GSList *new = g_slist_prepend(old, node->nname);
@@ -206,6 +220,7 @@ static void dump_aliases(GwDumpFile *file)
     }
 
     g_ptr_array_free(strings, TRUE);
+    g_slist_free_full(history_snapshots, (GDestroyNotify)gw_node_history_unref);
 }
 
 int main(int argc, char **argv)

@@ -36,6 +36,7 @@ struct vcdsymbol
     int size;
 
     unsigned char vartype;
+    unsigned int numhist;
 };
 
 #ifdef WAVE_USE_STRUCT_PACKING
@@ -512,10 +513,10 @@ static unsigned int vlist_emit_finalize(GwVcdLoader *self)
 
         set_vcd_vartype(v, n);
 
-        if (n->mv.mvlfac_vlist_writer == NULL) {
+        if (n->userdata == NULL) {
             GwVlistWriter *writer =
                 gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-            n->mv.mvlfac_vlist_writer = writer;
+            n->userdata = writer;
 
             if ((/* vprime= */ bsearch_vcd(self, v->id, strlen(v->id))) ==
                 v) /* hash mish means dup net */ /* scan-build */
@@ -554,8 +555,8 @@ static unsigned int vlist_emit_finalize(GwVcdLoader *self)
             }
         }
 
-        GwVlistWriter *writer = n->mv.mvlfac_vlist_writer;
-        n->mv.mvlfac_vlist = gw_vlist_writer_finish(writer);
+        GwVlistWriter *writer = n->userdata;
+        n->userdata = gw_vlist_writer_finish(writer);
         g_object_unref(writer);
 
         v = v->next;
@@ -952,19 +953,18 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
             unsigned int time_delta;
             unsigned int rcv;
 
-            if (n->mv.mvlfac_vlist_writer ==
-                NULL) /* overloaded for vlist, numhist = last position used */
+            if (n->userdata == NULL)
             {
-                n->mv.mvlfac_vlist_writer =
+                n->userdata =
                     gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-                gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
+                gw_vlist_writer_append_uv32(n->userdata,
                                             (unsigned int)'0'); /* represents single bit routine
                                                                  for decompression */
-                gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
+                gw_vlist_writer_append_uv32(n->userdata, (unsigned int)v->vartype);
             }
 
-            time_delta = self->time_vlist_count - (unsigned int)n->numhist;
-            n->numhist = self->time_vlist_count;
+            time_delta = self->time_vlist_count - v->numhist;
+            v->numhist = self->time_vlist_count;
 
             switch (self->yytext[0]) {
                 case '0':
@@ -1001,7 +1001,7 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
                     break;
             }
 
-            gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, rcv);
+            gw_vlist_writer_append_uv32(n->userdata, rcv);
         }
     } else {
         fprintf(stderr,
@@ -1025,10 +1025,10 @@ static void process_binary(GwVcdLoader *self, gchar typ, const gchar *vector, gi
     GwNode *n = v->narray[0];
     unsigned int time_delta;
 
-    if (n->mv.mvlfac_vlist_writer == NULL) /* overloaded for vlist, numhist = last position used */
+    if (n->userdata == NULL)
     {
         unsigned char typ2 = toupper(typ);
-        n->mv.mvlfac_vlist_writer =
+        n->userdata =
             gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
 
         if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
@@ -1042,26 +1042,26 @@ static void process_binary(GwVcdLoader *self, gchar typ, const gchar *vector, gi
             }
         }
 
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
+        gw_vlist_writer_append_uv32(n->userdata,
                                     (unsigned int)toupper(typ2)); /* B/R/P/S for decompress */
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
-        gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->size);
+        gw_vlist_writer_append_uv32(n->userdata, (unsigned int)v->vartype);
+        gw_vlist_writer_append_uv32(n->userdata, (unsigned int)v->size);
     }
 
-    time_delta = self->time_vlist_count - (unsigned int)n->numhist;
-    n->numhist = self->time_vlist_count;
+    time_delta = self->time_vlist_count - v->numhist;
+    v->numhist = self->time_vlist_count;
 
-    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, time_delta);
+    gw_vlist_writer_append_uv32(n->userdata, time_delta);
 
     if (typ == 'b' || typ == 'B') {
         if (v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, vector);
+            gw_vlist_writer_append_mvl9_string(n->userdata, vector);
         } else {
-            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
+            gw_vlist_writer_append_string(n->userdata, vector);
         }
     } else {
         if (v->vartype == V_REAL || v->vartype == V_STRINGTYPE || typ == 's' || typ == 'S') {
-            gw_vlist_writer_append_string(n->mv.mvlfac_vlist_writer, vector);
+            gw_vlist_writer_append_string(n->userdata, vector);
         } else {
             char *bits = g_alloca(v->size + 1);
             int i, j, k = 0;
@@ -1077,7 +1077,7 @@ static void process_binary(GwVcdLoader *self, gchar typ, const gchar *vector, gi
             }
 
         bit_term:
-            gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, bits);
+            gw_vlist_writer_append_mvl9_string(n->userdata, bits);
         }
     }
 }
@@ -1694,8 +1694,8 @@ static void vcd_parse_var(GwVcdLoader *self)
     /* initial conditions */
     v->narray = g_new0(GwNode *, 1);
     v->narray[0] = g_new0(GwNode, 1);
-    v->narray[0]->head.time = -2;
-    v->narray[0]->head.v.h_val = GW_BIT_X;
+    g_atomic_pointer_set(&v->narray[0]->active_history, gw_node_history_new());
+    v->numhist = 0;
 
     if (self->vcdsymroot == NULL) {
         self->vcdsymroot = self->vcdsymcurr = v;
@@ -2012,17 +2012,17 @@ static void vcd_build_symbols(GwVcdLoader *self)
                         // #endif
                         s->n = v->narray[j];
                         if (substnode) {
-                            GwNode *n;
-                            GwNode *n2;
+                            GwNode *n = s->n;
+                            GwNode *n2 = vprime->narray[j];
 
-                            n = s->n;
-                            n2 = vprime->narray[j];
-                            /* nname stays same */
-                            /* n->head=n2->head; */
-                            /* n->curr=n2->curr; */
-                            n->curr = (GwHistEnt *)n2;
-                            /* harray calculated later */
-                            n->numhist = n2->numhist;
+                            GwNodeHistory *history_to_share = gw_node_get_history_snapshot(n2);
+                            if(history_to_share) {
+                                GwNodeHistory *old_history = gw_node_publish_new_history(n, history_to_share);
+                                if(old_history) {
+                                    gw_node_history_unref(old_history);
+                                }
+                                gw_node_history_unref(history_to_share);
+                            }
                         }
 
                         // #ifndef _WAVE_HAVE_JUDY
@@ -2104,12 +2104,16 @@ static void vcd_build_symbols(GwVcdLoader *self)
 
                         n = s->n;
                         n2 = vprime->narray[0];
-                        /* nname stays same */
-                        /* n->head=n2->head; */
-                        /* n->curr=n2->curr; */
-                        n->curr = (GwHistEnt *)n2;
-                        /* harray calculated later */
-                        n->numhist = n2->numhist;
+
+                        GwNodeHistory *history_to_share = gw_node_get_history_snapshot(n2);
+                        if(history_to_share) {
+                            GwNodeHistory *old_history = gw_node_publish_new_history(n, history_to_share);
+                            if(old_history) {
+                                gw_node_history_unref(old_history);
+                            }
+                            gw_node_history_unref(history_to_share);
+                        }
+
                         n->extvals = n2->extvals;
                         n->msi = n2->msi;
                         n->lsi = n2->lsi;

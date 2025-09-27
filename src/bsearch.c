@@ -15,6 +15,8 @@
 #include "bsearch.h"
 #include "strace.h"
 #include <ctype.h>
+#include "gw-node.h"
+#include "gw-node-history.h"
 
 static int compar_timechain(const void *s1, const void *s2)
 {
@@ -94,20 +96,24 @@ static int compar_histent(const void *s1, const void *s2)
     return (rv);
 }
 
-GwHistEnt *bsearch_node(GwNode *n, GwTime key)
+GwHistEnt *bsearch_node(GwNodeHistory *history, GwTime key)
 {
     GLOBALS->max_compare_time_bsearch_c_1 = -2;
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
 
-    if (bsearch(&key, n->harray, n->numhist, sizeof(GwHistEnt *), compar_histent)) {
+    if (!history || !history->harray || history->numhist == 0) {
+        return NULL;
+    }
+
+    if (bsearch(&key, history->harray, history->numhist, sizeof(GwHistEnt *), compar_histent)) {
         /* nothing, all side effects are in bsearch */
     }
 
     if ((!GLOBALS->max_compare_pos_bsearch_c_1) ||
         (GLOBALS->max_compare_time_bsearch_c_1 < GW_TIME_CONSTANT(0))) {
-        GLOBALS->max_compare_pos_bsearch_c_1 = n->harray[1]; /* aix bsearch fix */
-        GLOBALS->max_compare_index = &(n->harray[1]);
+        GLOBALS->max_compare_pos_bsearch_c_1 = history->harray[1]; /* aix bsearch fix */
+        GLOBALS->max_compare_index = &(history->harray[1]);
     }
 
     while (GLOBALS->max_compare_pos_bsearch_c_1->next) /* non-RoSync dumper deglitching fix */

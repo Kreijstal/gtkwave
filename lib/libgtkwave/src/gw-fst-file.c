@@ -1,6 +1,7 @@
 #include <fstapi.h>
 #include "gw-fst-file.h"
 #include "gw-fst-file-private.h"
+#include "gw-node-history.h"
 
 #define FST_RDLOAD "FSTLOAD | "
 
@@ -279,10 +280,17 @@ static void fst_resolver(GwNode *np, GwNode *resolve)
     np->extvals = resolve->extvals;
     np->msi = resolve->msi;
     np->lsi = resolve->lsi;
-    memcpy(&np->head, &resolve->head, sizeof(GwHistEnt));
-    np->curr = resolve->curr;
-    np->harray = resolve->harray;
-    np->numhist = resolve->numhist;
+
+    GwNodeHistory *history_to_share = (GwNodeHistory *)g_atomic_pointer_get(&resolve->active_history);
+    if (history_to_share) {
+        gw_node_history_ref(history_to_share);
+    }
+    GwNodeHistory *old_history = (GwNodeHistory *)g_atomic_pointer_exchange(&np->active_history, history_to_share);
+    if(old_history)
+    {
+        gw_node_history_unref(old_history);
+    }
+
     np->mv.mvlfac = NULL;
 }
 
@@ -304,7 +312,6 @@ static void gw_fst_file_import_trace(GwFstFile *self, GwNode *np)
 
     txidx = f - self->mvlfacs;
     if (np->mv.mvlfac->flags & GW_FAC_FLAG_ALIAS) {
-        /* this is to map to fstHandles, so even non-aliased are remapped */
         txidx = self->mvlfacs[txidx].node_alias;
         txidx = self->mvlfacs_rvs_alias[txidx];
         np = self->mvlfacs[txidx].working_node;
@@ -315,15 +322,12 @@ static void gw_fst_file_import_trace(GwFstFile *self, GwNode *np)
         }
     }
 
-    if (!(f->flags & GW_FAC_FLAG_SYNVEC)) /* block debug message for synclk */
+    if (!(f->flags & GW_FAC_FLAG_SYNVEC))
     {
-        fprintf(stderr, "Import: %s\n", np->nname); /* normally this never happens */
+        fprintf(stderr, "Import: %s\n", np->nname);
     }
 
-    /* new stuff */
     len = np->mv.mvlfac->len;
-
-    /* check here for array height in future */
 
     if (!(f->flags & GW_FAC_FLAG_SYNVEC)) {
         fstReaderSetFacProcessMask(self->fst_reader, self->mvlfacs[txidx].node_alias + 1);
@@ -337,7 +341,7 @@ static void gw_fst_file_import_trace(GwFstFile *self, GwNode *np)
         for (i = 0; i < len; i++)
             htemp->v.h_vector[i] = GW_BIT_Z;
     } else {
-        htemp->v.h_val = GW_BIT_Z; /* z */
+        htemp->v.h_val = GW_BIT_Z;
     }
     htemp->time = GW_TIME_MAX;
 
@@ -358,7 +362,7 @@ static void gw_fst_file_import_trace(GwFstFile *self, GwNode *np)
         }
         htempx = htemp;
     } else {
-        htemp->v.h_val = GW_BIT_X; /* x */
+        htemp->v.h_val = GW_BIT_X;
         htempx = htemp;
     }
     htemp->time = GW_TIME_MAX - 1;
@@ -369,18 +373,20 @@ static void gw_fst_file_import_trace(GwFstFile *self, GwNode *np)
         htemp = self->fst_table[txidx].histent_head;
     }
 
+    GwNodeHistory *new_history = gw_node_history_new();
+
     if (!(f->flags & (GW_FAC_FLAG_DOUBLE | GW_FAC_FLAG_STRING))) {
         if (len > 1) {
-            np->head.v.h_vector = g_malloc(len);
+            new_history->head.v.h_vector = g_malloc(len);
             for (i = 0; i < len; i++)
-                np->head.v.h_vector[i] = GW_BIT_X;
+                new_history->head.v.h_vector[i] = GW_BIT_X;
         } else {
-            np->head.v.h_val = GW_BIT_X; /* x */
+            new_history->head.v.h_val = GW_BIT_X;
         }
     } else {
-        np->head.flags = GW_HIST_ENT_FLAG_REAL;
+        new_history->head.flags = GW_HIST_ENT_FLAG_REAL;
         if (f->flags & GW_FAC_FLAG_STRING) {
-            np->head.flags |= GW_HIST_ENT_FLAG_STRING;
+            new_history->head.flags |= GW_HIST_ENT_FLAG_STRING;
         }
     }
 
@@ -398,14 +404,20 @@ static void gw_fst_file_import_trace(GwFstFile *self, GwNode *np)
         self->fst_table[txidx].numtrans++;
     }
 
-    np->head.time = -2;
-    np->head.next = htemp;
-    np->numhist = self->fst_table[txidx].numtrans + 2 /*endcap*/ + 1 /*frontcap*/;
+    g_free(new_history->head.next); // free original t=-1 entry from gw_node_history_new
+    new_history->head.next = htemp; // link our fst-generated list
+    new_history->numhist = self->fst_table[txidx].numtrans + 2 + 1;
+    new_history->curr = histent_tail;
 
-    memset(&self->fst_table[txidx], 0, sizeof(GwLx2Entry)); /* zero it out */
+    gw_node_history_regenerate_harray(new_history);
 
-    np->curr = histent_tail;
-    np->mv.mvlfac = NULL; /* it's imported and cached so we can forget it's an mvlfac now */
+    GwNodeHistory *old_history = gw_node_publish_new_history(np, new_history);
+    if(old_history) gw_node_history_unref(old_history);
+    gw_node_history_unref(new_history);
+
+    memset(&self->fst_table[txidx], 0, sizeof(GwLx2Entry));
+
+    np->mv.mvlfac = NULL;
 
     if (nold != np) {
         fst_resolver(nold, np);
@@ -601,18 +613,20 @@ static void gw_fst_file_import_masked(GwFstFile *self)
                 htemp = self->fst_table[txidx].histent_head;
             }
 
+            GwNodeHistory *new_history = gw_node_history_new();
+
             if (!(f->flags & (GW_FAC_FLAG_DOUBLE | GW_FAC_FLAG_STRING))) {
                 if (len > 1) {
-                    np->head.v.h_vector = g_malloc(len);
+                    new_history->head.v.h_vector = g_malloc(len);
                     for (i = 0; i < len; i++)
-                        np->head.v.h_vector[i] = GW_BIT_X;
+                        new_history->head.v.h_vector[i] = GW_BIT_X;
                 } else {
-                    np->head.v.h_val = GW_BIT_X; /* x */
+                    new_history->head.v.h_val = GW_BIT_X;
                 }
             } else {
-                np->head.flags = GW_HIST_ENT_FLAG_REAL;
+                new_history->head.flags = GW_HIST_ENT_FLAG_REAL;
                 if (f->flags & GW_FAC_FLAG_STRING) {
-                    np->head.flags |= GW_HIST_ENT_FLAG_STRING;
+                    new_history->head.flags |= GW_HIST_ENT_FLAG_STRING;
                 }
             }
 
@@ -630,14 +644,19 @@ static void gw_fst_file_import_masked(GwFstFile *self)
                 self->fst_table[txidx].numtrans++;
             }
 
-            np->head.time = -2;
-            np->head.next = htemp;
-            np->numhist = self->fst_table[txidx].numtrans + 2 /*endcap*/ + 1 /*frontcap*/;
+            g_free(new_history->head.next);
+            new_history->head.next = htemp;
+            new_history->numhist = self->fst_table[txidx].numtrans + 2 + 1;
+            new_history->curr = histent_tail;
 
-            memset(&self->fst_table[txidx], 0, sizeof(GwLx2Entry)); /* zero it out */
+            gw_node_history_regenerate_harray(new_history);
 
-            np->curr = histent_tail;
-            np->mv.mvlfac = NULL; /* it's imported and cached so we can forget it's an mvlfac now */
+            GwNodeHistory *old_history = gw_node_publish_new_history(np, new_history);
+            if(old_history) gw_node_history_unref(old_history);
+            gw_node_history_unref(new_history);
+
+            memset(&self->fst_table[txidx], 0, sizeof(GwLx2Entry));
+            np->mv.mvlfac = NULL;
             fstReaderClrFacProcessMask(self->fst_reader, txidxi + 1);
         }
     }

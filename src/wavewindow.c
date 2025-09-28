@@ -21,6 +21,7 @@
 #include "main.h"
 #include "signal_list.h"
 #include "gw-wave-view.h"
+#include "gw-node-history.h"
 
 #if !defined _ISOC99_SOURCE
 #define _ISOC99_SOURCE 1
@@ -206,14 +207,19 @@ process_trace:
         lft = v->time;
         rgh = v2->time;
     } else {
-        GwHistEnt *h = bsearch_node(t->n.nd, marker - t->shift);
+        GwHistEnt *h = NULL;
+        GwNodeHistory *history = bsearch_node(t->n.nd, marker - t->shift, &h);
         GwHistEnt *h2 = h ? h->next : NULL;
 
-        if ((!h) || (!h2))
+        if ((!history) || (!h) || (!h2)) {
+            if (history)
+                gw_node_history_unref(history);
             goto bot; /* should never happen */
+        }
 
         lft = h->time;
         rgh = h2->time;
+        gw_node_history_unref(history);
     }
 
     lftinv = (lft < (GLOBALS->tims.start - t->shift)) || (lft >= (GLOBALS->tims.end - t->shift)) ||
@@ -611,7 +617,7 @@ static gint motion_notify_event(GtkWidget *widget, GdkEventMotion *event)
         }
 
         WAVE_GDK_GET_POINTER(event->window, &x, &y, &xi, &yi, &state);
-        WAVE_GDK_GET_POINTER_COPY;
+        WAVE_GDK_GET_POINTER_COPY_XONLY;
 
     } while ((scrolled) && (state & bmask[GLOBALS->in_button_press_wavewindow_c_1]));
 
@@ -1952,9 +1958,11 @@ void MaxSignalLength(void)
                     }
                 } else {
                     char *str;
-                    GwHistEnt *h_ptr;
-                    if ((h_ptr = bsearch_node(t->n.nd,
-                                              gw_marker_get_position(primary_marker) - t->shift))) {
+                    GwHistEnt *h_ptr = NULL;
+                    GwNodeHistory *history =
+                        bsearch_node(t->n.nd, gw_marker_get_position(primary_marker) - t->shift, &h_ptr);
+
+                    if (h_ptr) {
                         if (!t->n.nd->extvals) {
                             unsigned char h_val = h_ptr->v.h_val;
 
@@ -2006,6 +2014,9 @@ void MaxSignalLength(void)
                     } else {
                         vlen = 0;
                         t->asciivalue = NULL;
+                    }
+                    if (history) {
+                        gw_node_history_unref(history);
                     }
                 }
 
@@ -2182,9 +2193,11 @@ void UpdateSigValue(GwTrace *t)
                 }
             } else {
                 char *str;
-                GwHistEnt *h_ptr;
-                if ((h_ptr = bsearch_node(t->n.nd,
-                                          gw_marker_get_position(primary_marker) - t->shift))) {
+                GwHistEnt *h_ptr = NULL;
+                GwNodeHistory *history =
+                    bsearch_node(t->n.nd, gw_marker_get_position(primary_marker) - t->shift, &h_ptr);
+
+                if (h_ptr) {
                     if (!t->n.nd->extvals) {
                         unsigned char h_val = h_ptr->v.h_val;
                         if (t->n.nd->vartype == GW_VAR_TYPE_VCD_EVENT) {
@@ -2228,7 +2241,13 @@ void UpdateSigValue(GwTrace *t)
                             t->asciivalue = NULL;
                         }
                     }
-                } else {
+                }
+
+                if (history) {
+                    gw_node_history_unref(history);
+                }
+
+                if (!h_ptr) {
                     t->asciivalue = NULL;
                 }
             }

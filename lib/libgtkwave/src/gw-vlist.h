@@ -19,3 +19,4 @@ guint gw_vlist_size(GwVlist *v);
 void *gw_vlist_locate(GwVlist *v, guint idx);
 void gw_vlist_freeze(GwVlist **v, gint compression_level);
 void gw_vlist_uncompress(GwVlist **v);
+GwVlist *gw_vlist_copy(const GwVlist *src);

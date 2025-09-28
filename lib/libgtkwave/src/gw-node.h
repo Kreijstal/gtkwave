@@ -1,7 +1,8 @@
 #pragma once
 
+#include <glib-object.h>
 #include "gw-types.h"
-#include "gw-hist-ent.h"
+#include "gw-node-history.h"
 #include "gw-vlist-writer.h"
 #include "gw-vlist-reader.h"
 
@@ -40,11 +41,9 @@ struct _GwNode
     GwExpandReferences *expansion; /* indicates which nptr this node was expanded from (if it was
                         expanded at all) and (when implemented) refcnts */
     char *nname; /* ascii name of node */
-    GwHistEnt head; /* first entry in transition history */
-    GwHistEnt *curr; /* ptr. to current history entry */
 
-    GwHistEnt **harray; /* fill this in when we make a trace.. contains  */
-    /*  a ptr to an array of histents for bsearching */
+    gpointer active_history; // Atomically points to the current GwNodeHistory
+
     union
     {
         GwFac *mvlfac; /* for use with mvlsim aets */
@@ -55,8 +54,6 @@ struct _GwNode
              warnings */
 
     int msi, lsi; /* for 64-bit, more efficient than having as an external struct ExtNode*/
-
-    int numhist; /* number of elements in the harray */
 
     GwTime last_time; /* time of last transition for delta calculation */
     GwTime last_time_raw; /* raw time value (without global offset) for delta calculation */
@@ -75,3 +72,6 @@ struct _GwNode
 #endif
 
 GwExpandInfo *gw_node_expand(GwNode *self);
+
+GwNodeHistory *gw_node_get_history_snapshot(GwNode *self);
+GwNodeHistory *gw_node_publish_new_history(GwNode *self, GwNodeHistory *history);

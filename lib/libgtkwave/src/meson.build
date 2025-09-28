@@ -14,6 +14,7 @@ libgtkwave_public_sources = [
     'gw-ghw-loader.c',
     'gw-hash.c',
     'gw-hist-ent-factory.c',
+    'gw-node-history.c',
     'gw-loader.c',
     'gw-marker.c',
     'gw-named-markers.c',

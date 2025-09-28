@@ -23,13 +23,12 @@ gchar get_last_value_as_char(GwDumpFile *dump, const gchar *signal_name)
     g_assert_nonnull(symbol->n);
 
     GwNode *node = symbol->n;
-    g_assert_nonnull(node->curr); // Should have at least the placeholder entries
+    GwNodeHistory *history = gw_node_get_history_snapshot(node);
+    g_assert_nonnull(history);
+    g_assert_nonnull(history->curr); // Should have at least the placeholder entries
 
-    // Get the last history entry (skip placeholders if needed)
-    GwHistEnt *last_hist = node->curr;
-    while (last_hist != NULL && last_hist->next != NULL) {
-        last_hist = last_hist->next;
-    }
+    // Get the last history entry
+    GwHistEnt *last_hist = history->curr;
 
     g_assert_nonnull(last_hist);
     
@@ -57,6 +56,7 @@ gchar get_last_value_as_char(GwDumpFile *dump, const gchar *signal_name)
         result = gw_bit_to_char(last_hist->v.h_val);
     }
     
+    gw_node_history_unref(history);
     g_test_message("get_last_value_as_char: result='%c' (%d)", result, result);
     return result;
 }
@@ -77,9 +77,14 @@ void assert_history_matches_up_to_time(GwNode *expected_node, GwNode *actual_nod
     g_assert_nonnull(expected_node);
     g_assert_nonnull(actual_node);
 
+    GwNodeHistory *expected_history = gw_node_get_history_snapshot(expected_node);
+    GwNodeHistory *actual_history = gw_node_get_history_snapshot(actual_node);
+    g_assert_nonnull(expected_history);
+    g_assert_nonnull(actual_history);
+
     // Get the first history entries (skip the head which is just a placeholder)
-    GwHistEnt *expected_hist = expected_node->head.next;
-    GwHistEnt *actual_hist = actual_node->head.next;
+    GwHistEnt *expected_hist = expected_history->head.next;
+    GwHistEnt *actual_hist = actual_history->head.next;
 
     guint expected_count = 0;
     guint actual_count = 0;
@@ -150,6 +155,8 @@ void assert_history_matches_up_to_time(GwNode *expected_node, GwNode *actual_nod
     }
 
     g_test_message("Compared %u transitions up to time %" GW_TIME_FORMAT, expected_count, max_time);
+    gw_node_history_unref(expected_history);
+    gw_node_history_unref(actual_history);
 }
 
 /**
@@ -167,9 +174,14 @@ void assert_signal_history_matches(GwNode *expected_node, GwNode *actual_node)
     g_assert_nonnull(expected_node);
     g_assert_nonnull(actual_node);
 
+    GwNodeHistory *expected_history = gw_node_get_history_snapshot(expected_node);
+    GwNodeHistory *actual_history = gw_node_get_history_snapshot(actual_node);
+    g_assert_nonnull(expected_history);
+    g_assert_nonnull(actual_history);
+
     // Get the first history entries (skip the head which is just a placeholder)
-    GwHistEnt *expected_hist = expected_node->head.next;
-    GwHistEnt *actual_hist = actual_node->head.next;
+    GwHistEnt *expected_hist = expected_history->head.next;
+    GwHistEnt *actual_hist = actual_history->head.next;
 
     guint expected_count = 0;
     guint actual_count = 0;
@@ -178,8 +190,8 @@ void assert_signal_history_matches(GwNode *expected_node, GwNode *actual_node)
     if (expected_hist == NULL) {
         g_test_message("WARNING: expected_hist is NULL - expected node has no history entries");
         g_test_message("Expected node info: numhist=%d, extvals=%d, vartype=%d, head.next=%p, curr=%p", 
-                       expected_node->numhist, expected_node->extvals, expected_node->vartype,
-                       expected_node->head.next, expected_node->curr);
+                       expected_history->numhist, expected_node->extvals, expected_node->vartype,
+                       expected_history->head.next, expected_history->curr);
     } else {
         for (GwHistEnt *he = expected_hist; he != NULL; he = he->next) {
             g_test_message("Expected transition: time=%" GW_TIME_FORMAT ", flags=0x%x", he->time, he->flags);
@@ -209,12 +221,12 @@ void assert_signal_history_matches(GwNode *expected_node, GwNode *actual_node)
         if (expected_hist == NULL) {
             g_test_message("  No transitions found - expected_hist is NULL");
             g_test_message("  Expected node info: numhist=%d, extvals=%d, vartype=%d", 
-                           expected_node->numhist, expected_node->extvals, expected_node->vartype);
-            g_test_message("  Expected node head: next=%p, curr=%p", expected_node->head.next, expected_node->curr);
+                           expected_history->numhist, expected_node->extvals, expected_node->vartype);
+            g_test_message("  Expected node head: next=%p, curr=%p", expected_history->head.next, expected_history->curr);
             
             // Check if the node has any history at all
-            if (expected_node->numhist > 0) {
-                g_test_message("  ERROR: Node reports numhist=%d but head.next is NULL!", expected_node->numhist);
+            if (expected_history->numhist > 0) {
+                g_test_message("  ERROR: Node reports numhist=%d but head.next is NULL!", expected_history->numhist);
             }
         } else {
             for (GwHistEnt *he = expected_hist; he != NULL; he = he->next) {
@@ -292,6 +304,8 @@ void assert_signal_history_matches(GwNode *expected_node, GwNode *actual_node)
     // Assert that the partial loader doesn't have extra transitions beyond what we compared
     // (it should only have the meaningful transitions, no endcaps)
     g_assert_null(actual_hist);
+    gw_node_history_unref(expected_history);
+    gw_node_history_unref(actual_history);
 }
 
 /**

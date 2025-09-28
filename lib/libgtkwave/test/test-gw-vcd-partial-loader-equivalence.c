@@ -89,51 +89,56 @@ static gchar *dump_file_to_string(GwDumpFile *dump_file)
                     g_string_append_printf(output, "        varxt: %d\n", node->varxt);
                     g_string_append_printf(output, "        extvals: %d\n", node->extvals);
                     g_string_append_printf(output, "        msi, lsi: %d, %d\n", node->msi, node->lsi);
-                    g_string_append_printf(output, "        numhist: %d\n", node->numhist);
 
-                    g_string_append_printf(output, "        transitions:\n");
+                    GwNodeHistory *history = gw_node_get_history_snapshot(node);
+                    if (history) {
+                        g_string_append_printf(output, "        numhist: %d\n", history->numhist);
 
-                    // Detailed transition listing
-                    for (GwHistEnt *hent = node->head.next; hent != NULL; hent = hent->next) {
-                        g_string_append_printf(output, "            ");
+                        g_string_append_printf(output, "        transitions:\n");
 
-                        if (hent->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
-                            if (hent->flags & GW_HIST_ENT_FLAG_STRING) {
-                                if (hent->time == -2) {
-                                    g_string_append_printf(output, "x");
-                                } else if (hent->time == -1) {
-                                    g_string_append_printf(output, "?");
-                                } else {
-                                    g_string_append_printf(output, "\"%s\"", hent->v.h_vector);
-                                }
-                            } else {
-                                // Special handling for real signals at time=-2
-                                if (hent->time == -2) {
-                                    // Check for the special NaN pattern that should display as 'x'
-                                    union { double d; guint64 u; } val_union;
-                                    val_union.d = hent->v.h_double;
-                                    if (val_union.u == 0x7ff8000000000001ULL) {
+                        // Detailed transition listing
+                        for (GwHistEnt *hent = history->head.next; hent != NULL; hent = hent->next) {
+                            g_string_append_printf(output, "            ");
+
+                            if (hent->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
+                                if (hent->flags & GW_HIST_ENT_FLAG_STRING) {
+                                    if (hent->time == -2) {
                                         g_string_append_printf(output, "x");
+                                    } else if (hent->time == -1) {
+                                        g_string_append_printf(output, "?");
+                                    } else {
+                                        g_string_append_printf(output, "\"%s\"", hent->v.h_vector);
+                                    }
+                                } else {
+                                    // Special handling for real signals at time=-2
+                                    if (hent->time == -2) {
+                                        // Check for the special NaN pattern that should display as 'x'
+                                        union { double d; guint64 u; } val_union;
+                                        val_union.d = hent->v.h_double;
+                                        if (val_union.u == 0x7ff8000000000001ULL) {
+                                            g_string_append_printf(output, "x");
+                                        } else {
+                                            g_string_append_printf(output, "%f", hent->v.h_double);
+                                        }
                                     } else {
                                         g_string_append_printf(output, "%f", hent->v.h_double);
                                     }
-                                } else {
-                                    g_string_append_printf(output, "%f", hent->v.h_double);
                                 }
-                            }
-                        } else if (node->msi == node->lsi) {
-                            g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_val));
-                        } else {
-                            if (hent->time < 0) {
-                                g_string_append_printf(output, "?");
+                            } else if (node->msi == node->lsi) {
+                                g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_val));
                             } else {
-                                gint bits = ABS(node->msi - node->lsi) + 1;
-                                for (gint i = 0; i < bits; i++) {
-                                    g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_vector[i]));
+                                if (hent->time < 0) {
+                                    g_string_append_printf(output, "?");
+                                } else {
+                                    gint bits = ABS(node->msi - node->lsi) + 1;
+                                    for (gint i = 0; i < bits; i++) {
+                                        g_string_append_printf(output, "%c", gw_bit_to_char(hent->v.h_vector[i]));
+                                    }
                                 }
                             }
+                            g_string_append_printf(output, " @ %" GW_TIME_FORMAT "\n", hent->time);
                         }
-                        g_string_append_printf(output, " @ %" GW_TIME_FORMAT "\n", hent->time);
+                        gw_node_history_unref(history);
                     }
 
                     g_free(vartype_str);
@@ -212,8 +217,11 @@ static void test_vcd_equivalence_full(void)
         GwSymbol *symbol = gw_facs_get(expected_facs, i);
         g_assert_nonnull(symbol);
         g_assert_nonnull(symbol->n);
-        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
-        g_assert_cmpint(symbol->n->numhist, >, 0);
+        GwNodeHistory *history = gw_node_get_history_snapshot(symbol->n);
+        g_assert_nonnull(history);
+        g_test_message("Signal %s has %d history entries", symbol->name, history->numhist);
+        g_assert_cmpint(history->numhist, >, 0);
+        gw_node_history_unref(history);
     }
 
     g_test_message("Original loader test passed!");
@@ -435,11 +443,13 @@ static void test_vcd_equivalence_timescale_1ms(void)
         GwSymbol *symbol = gw_facs_get(actual_facs, i);
         g_assert_nonnull(symbol);
         g_assert_nonnull(symbol->n);
-        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
+        GwNodeHistory *history = gw_node_get_history_snapshot(symbol->n);
+        g_assert_nonnull(history);
+        g_test_message("Signal %s has %d history entries", symbol->name, history->numhist);
 
         // Check if time values are properly scaled
-        if (symbol->n->numhist > 0) {
-            GwHistEnt *hist = symbol->n->head.next;
+        if (history->numhist > 0) {
+            GwHistEnt *hist = history->head.next;
             while (hist) {
                 g_test_message("  Time: %" GW_TIME_FORMAT " (raw value from VCD file)", hist->time);
                 // For timescale_100fs.vcd, time values should be scaled by 100
@@ -447,6 +457,7 @@ static void test_vcd_equivalence_timescale_1ms(void)
                 hist = hist->next;
             }
         }
+        gw_node_history_unref(history);
     }
 
     g_test_message("Timescale 1ms test passed!");
@@ -488,11 +499,13 @@ static void test_vcd_equivalence_timescale_100fs(void)
         GwSymbol *symbol = gw_facs_get(actual_facs, i);
         g_assert_nonnull(symbol);
         g_assert_nonnull(symbol->n);
-        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
+        GwNodeHistory *history = gw_node_get_history_snapshot(symbol->n);
+        g_assert_nonnull(history);
+        g_test_message("Signal %s has %d history entries", symbol->name, history->numhist);
 
         // Check if time values are properly scaled
-        if (symbol->n->numhist > 0) {
-            GwHistEnt *hist = symbol->n->head.next;
+        if (history->numhist > 0) {
+            GwHistEnt *hist = history->head.next;
             while (hist) {
                 g_test_message("  Time: %" GW_TIME_FORMAT " (raw value from VCD file)", hist->time);
                 // For timescale_100fs.vcd, time values should be scaled by 100
@@ -500,6 +513,7 @@ static void test_vcd_equivalence_timescale_100fs(void)
                 hist = hist->next;
             }
         }
+        gw_node_history_unref(history);
     }
 
     g_test_message("Timescale 100fs test passed!");
@@ -775,8 +789,11 @@ static void test_vcd_equivalence_basic(void)
         GwSymbol *symbol = gw_facs_get(expected_facs, i);
         g_assert_nonnull(symbol);
         g_assert_nonnull(symbol->n);
-        g_test_message("Signal %s has %d history entries", symbol->name, symbol->n->numhist);
-        g_assert_cmpint(symbol->n->numhist, >, 0);
+        GwNodeHistory *history = gw_node_get_history_snapshot(symbol->n);
+        g_assert_nonnull(history);
+        g_test_message("Signal %s has %d history entries", symbol->name, history->numhist);
+        g_assert_cmpint(history->numhist, >, 0);
+        gw_node_history_unref(history);
     }
 
     g_test_message("Original loader test passed!");
@@ -930,16 +947,12 @@ static void test_vcd_partial_loader_aliasing(void)
         if (actual_bit_alias && actual_bit_alias->n) {
             GwNode *alias_node = actual_bit_alias->n;
             g_test_message("  Name: %s", alias_node->nname);
-            g_test_message("  History Count (numhist): %d", alias_node->numhist);
-            g_test_message("  Head pointer: %p", alias_node->head.next);
-            g_test_message("  Curr pointer: %p", alias_node->curr);
-
-            // Let's also check the original signal from the partial loader's perspective
-            GwSymbol *actual_original_bit = gw_dump_file_lookup_symbol(actual_dump, "variables.bit");
-            if(actual_original_bit && actual_original_bit->n) {
-                g_test_message("  Original 'variables.bit' Curr pointer for comparison: %p", actual_original_bit->n->curr);
-                g_test_message("  Is alias Curr pointer pointing to original's Node? %s",
-                               (GwNode*)alias_node->curr == actual_original_bit->n ? "YES" : "NO");
+            GwNodeHistory *history = gw_node_get_history_snapshot(alias_node);
+            if (history) {
+                g_test_message("  History Count (numhist): %d", history->numhist);
+                g_test_message("  Head pointer: %p", history->head.next);
+                g_test_message("  Curr pointer: %p", history->curr);
+                gw_node_history_unref(history);
             }
         } else {
             g_test_message("  'aliases.bit_alias' (Actual) or its node is NULL!");
@@ -947,9 +960,15 @@ static void test_vcd_partial_loader_aliasing(void)
         g_test_message("--- END DIAGNOSTIC DUMP ---");
 
     // Check that both have the same number of history entries
-    g_test_message("Expected bit_alias history entries: %d", expected_bit_alias->n->numhist);
-    g_test_message("Actual bit_alias history entries: %d", actual_bit_alias->n->numhist);
-    g_assert_cmpint(expected_bit_alias->n->numhist, ==, actual_bit_alias->n->numhist);
+    GwNodeHistory *expected_history = gw_node_get_history_snapshot(expected_bit_alias->n);
+    GwNodeHistory *actual_history = gw_node_get_history_snapshot(actual_bit_alias->n);
+    g_assert_nonnull(expected_history);
+    g_assert_nonnull(actual_history);
+    g_test_message("Expected bit_alias history entries: %d", expected_history->numhist);
+    g_test_message("Actual bit_alias history entries: %d", actual_history->numhist);
+    g_assert_cmpint(expected_history->numhist, ==, actual_history->numhist);
+    gw_node_history_unref(expected_history);
+    gw_node_history_unref(actual_history);
 /*
     // Check vector alias
     GwSymbol *expected_vector_alias = gw_dump_file_lookup_symbol(expected_dump, "aliases.vector_alias");
@@ -1095,8 +1114,12 @@ static void test_vcd_partial_loader_custom_parser(void)
             if (!n) {
                 continue;
             }
+            GwNodeHistory *history = gw_node_get_history_snapshot(n);
+            if (!history) {
+                continue;
+            }
 
-            for (GwHistEnt *he = n->head.next; he != NULL; he = he->next) {
+            for (GwHistEnt *he = history->head.next; he != NULL; he = he->next) {
                 if (he->time < 0) continue;
 
                 if (he->flags & GW_HIST_ENT_FLAG_REAL) {
@@ -1120,6 +1143,7 @@ static void test_vcd_partial_loader_custom_parser(void)
                 } else {
                 }
             }
+            gw_node_history_unref(history);
         }
     }
 

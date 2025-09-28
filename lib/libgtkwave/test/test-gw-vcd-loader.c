@@ -67,8 +67,11 @@ static void test_equivalence_vcd_loading(void)
         g_assert_nonnull(symbol);
         g_assert_nonnull(symbol->n);
         
-        g_test_message("Signal %d: %s, numhist=%d", i, symbol->name, symbol->n->numhist);
-        g_assert_cmpint(symbol->n->numhist, >, 0);
+        GwNodeHistory *history = gw_node_get_history_snapshot(symbol->n);
+        g_assert_nonnull(history);
+        g_test_message("Signal %d: %s, numhist=%d", i, symbol->name, history->numhist);
+        g_assert_cmpint(history->numhist, >, 0);
+        gw_node_history_unref(history);
     }
 
     g_object_unref(dump);

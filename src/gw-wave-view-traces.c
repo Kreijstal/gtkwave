@@ -117,6 +117,7 @@ static void draw_hptr_trace(GwWaveView *self,
                             GwWaveformColors *colors,
                             GwTrace *t,
                             GwHistEnt *h,
+                            GwNodeHistory *history,
                             int which,
                             int dodraw,
                             int kill_grid);
@@ -125,7 +126,16 @@ static void draw_hptr_trace_vector(GwWaveView *self,
                                    GwWaveformColors *colors,
                                    GwTrace *t,
                                    GwHistEnt *h,
+                                   GwNodeHistory *history,
                                    int which);
+static void draw_hptr_trace_vector_analog(GwWaveView *self,
+                                          cairo_t *cr,
+                                          GwWaveformColors *colors,
+                                          GwTrace *t,
+                                          GwHistEnt *h,
+                                          GwNodeHistory *history,
+                                          int which,
+                                          int num_extension);
 static void draw_vptr_trace(GwWaveView *self,
                             cairo_t *cr,
                             GwWaveformColors *colors,
@@ -138,7 +148,6 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
     GwTrace *t = gw_signal_list_get_trace(GW_SIGNAL_LIST(GLOBALS->signalarea), 0);
     if (t) {
         GwTrace *tback = t;
-        GwHistEnt *h;
         GwVectorEnt *v;
         int i = 0, num_traces_displayable;
         int iback = 0;
@@ -181,17 +190,22 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
             if (!(t->flags & (TR_EXCLUDE | TR_BLANK | TR_ANALOG_BLANK_STRETCH))) {
                 GLOBALS->shift_timebase = t->shift;
                 if (!t->vector) {
-                    h = bsearch_node(t->n.nd, GLOBALS->tims.start - t->shift);
+                    GwHistEnt *h = NULL;
+                    GwNodeHistory *history = bsearch_node(t->n.nd, GLOBALS->tims.start - t->shift, &h);
                     DEBUG(printf("Start time: %" GW_TIME_FORMAT ", Histent time: %" GW_TIME_FORMAT
                                  "\n",
                                  GLOBALS->tims.start,
-                                 (h->time + GLOBALS->shift_timebase)));
+                                 (h ? (h->time + GLOBALS->shift_timebase) : -1)));
 
                     if (i >= 0) {
                         if (!t->n.nd->extvals) {
-                            draw_hptr_trace(self, cr, colors, t, h, i, 1, 0);
+                            draw_hptr_trace(self, cr, colors, t, h, history, i, 1, 0);
                         } else {
-                            draw_hptr_trace_vector(self, cr, colors, t, h, i);
+                            draw_hptr_trace_vector(self, cr, colors, t, h, history, i);
+                        }
+                    } else {
+                        if (history) {
+                            gw_node_history_unref(history);
                         }
                     }
                 } else {
@@ -243,7 +257,7 @@ void gw_wave_view_render_traces(GwWaveView *self, cairo_t *cr)
                 }
 
                 if (i >= 0) {
-                    draw_hptr_trace(self, cr, colors, NULL, NULL, i, 0, kill_dodraw_grid);
+                    draw_hptr_trace(self, cr, colors, NULL, NULL, NULL, i, 0, kill_dodraw_grid);
                 }
             }
             t = GiveNextTrace(t);
@@ -265,6 +279,7 @@ static void draw_hptr_trace(GwWaveView *self,
                             GwWaveformColors *colors,
                             GwTrace *t,
                             GwHistEnt *h,
+                            GwNodeHistory *history,
                             int which,
                             int dodraw,
                             int kill_grid)
@@ -341,10 +356,8 @@ static void draw_hptr_trace(GwWaveView *self,
             line_buffer_add(lines, c, 0, _y0, 0, _y1);
         }
 
-    if (dodraw && t)
-        for (;;) {
-            if (!h)
-                break;
+    if (dodraw && t) {
+        while (h) {
             tim = (h->time);
 
             if ((tim > GLOBALS->tims.end) || (tim > GLOBALS->tims.last))
@@ -602,10 +615,16 @@ static void draw_hptr_trace(GwWaveView *self,
                 }
                 newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                           GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
-                h3 = bsearch_node(t->n.nd, newtime);
-                if (h3->time > h->time) {
+                ;
+                GwNodeHistory *next_history = bsearch_node(t->n.nd, newtime, &h3);
+                if (next_history && h3 && h3->time > h->time) {
+                    gw_node_history_unref(history);
+                    history = next_history;
                     h = h3;
                     continue;
+                }
+                if (next_history) {
+                    gw_node_history_unref(next_history);
                 }
             }
 
@@ -615,6 +634,11 @@ static void draw_hptr_trace(GwWaveView *self,
 
             h = h->next;
         }
+    }
+
+    if (history) {
+        gw_node_history_unref(history);
+    }
 
     line_buffer_draw(lines, cr);
     line_buffer_free(lines);
@@ -630,6 +654,7 @@ static void draw_hptr_trace_vector_analog(GwWaveView *self,
                                           GwWaveformColors *colors,
                                           GwTrace *t,
                                           GwHistEnt *h,
+                                          GwNodeHistory *history,
                                           int which,
                                           int num_extension)
 {
@@ -664,37 +689,38 @@ static void draw_hptr_trace_vector_analog(GwWaveView *self,
     if (t->flags & TR_ANALOG_FULLSCALE) /* otherwise use dynamic */
     {
         if ((!t->minmax_valid) || (t->d_num_ext != num_extension)) {
-            h3 = &t->n.nd->head;
-            for (;;) {
-                if (!h3)
-                    break;
-
-                if ((h3->time >= GLOBALS->tims.first) && (h3->time <= GLOBALS->tims.last)) {
-                    tv = mynan;
-                    if (h3->flags & GW_HIST_ENT_FLAG_REAL) {
-                        if (!(h3->flags & GW_HIST_ENT_FLAG_STRING))
-                            tv = h3->v.h_double;
-                    } else {
-                        if (h3->time <= GLOBALS->tims.last)
-                            tv = convert_real_vec(t, h3->v.h_vector);
-                    }
-
-                    if (!isnan(tv) && !isinf(tv)) {
-                        if (isnan(tmin) || tv < tmin)
-                            tmin = tv;
-                        if (isnan(tmax) || tv > tmax)
-                            tmax = tv;
-                    } else if (isinf(tv)) {
-                        any_infs = 1;
-
-                        if (tv > 0) {
-                            any_infp = 1;
+            GwNodeHistory *full_history = gw_node_get_history_snapshot(t->n.nd);
+            if (full_history) {
+                h3 = full_history->head.next;
+                while (h3) {
+                    if ((h3->time >= GLOBALS->tims.first) && (h3->time <= GLOBALS->tims.last)) {
+                        tv = mynan;
+                        if (h3->flags & GW_HIST_ENT_FLAG_REAL) {
+                            if (!(h3->flags & GW_HIST_ENT_FLAG_STRING))
+                                tv = h3->v.h_double;
                         } else {
-                            any_infm = 1;
+                            if (h3->time <= GLOBALS->tims.last)
+                                tv = convert_real_vec(t, h3->v.h_vector);
+                        }
+
+                        if (!isnan(tv) && !isinf(tv)) {
+                            if (isnan(tmin) || tv < tmin)
+                                tmin = tv;
+                            if (isnan(tmax) || tv > tmax)
+                                tmax = tv;
+                        } else if (isinf(tv)) {
+                            any_infs = 1;
+
+                            if (tv > 0) {
+                                any_infp = 1;
+                            } else {
+                                any_infm = 1;
+                            }
                         }
                     }
+                    h3 = h3->next;
                 }
-                h3 = h3->next;
+                gw_node_history_unref(full_history);
             }
 
             if (isnan(tmin) || isnan(tmax)) {
@@ -798,9 +824,7 @@ static void draw_hptr_trace_vector_analog(GwWaveView *self,
 
     /* now do the actual drawing */
     h3 = NULL;
-    for (;;) {
-        if (!h)
-            break;
+    while (h) {
         tim = (h->time);
         if ((tim > GLOBALS->tims.end) || (tim > GLOBALS->tims.last))
             break;
@@ -1047,16 +1071,26 @@ static void draw_hptr_trace_vector_analog(GwWaveView *self,
         } else {
             newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                       GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
-            h3 = bsearch_node(t->n.nd, newtime);
-            if (h3->time > h->time) {
+            ;
+            GwNodeHistory *next_history = bsearch_node(t->n.nd, newtime, &h3);
+            if (next_history && h3 && h3->time > h->time) {
+                gw_node_history_unref(history);
+                history = next_history;
                 h = h3;
                 /* lasttype=type; */ /* scan-build */
                 continue;
+            }
+            if (next_history) {
+                gw_node_history_unref(next_history);
             }
         }
 
         h = h->next;
         /* lasttype=type; */ /* scan-build */
+    }
+
+    if (history) {
+        gw_node_history_unref(history);
     }
 }
 
@@ -1068,6 +1102,7 @@ static void draw_hptr_trace_vector(GwWaveView *self,
                                    GwWaveformColors *colors,
                                    GwTrace *t,
                                    GwHistEnt *h,
+                                   GwNodeHistory *history,
                                    int which)
 {
     GwTime _x0, _x1, newtime;
@@ -1124,7 +1159,7 @@ static void draw_hptr_trace_vector(GwWaveView *self,
         }
     }
 
-    if ((t->flags & TR_ANALOGMASK) &&
+    if (h && (t->flags & TR_ANALOGMASK) &&
         (!(h->flags & GW_HIST_ENT_FLAG_STRING) || !(h->flags & GW_HIST_ENT_FLAG_REAL))) {
         GwTrace *te = GiveNextTrace(t);
         int ext = 0;
@@ -1149,7 +1184,7 @@ static void draw_hptr_trace_vector(GwWaveView *self,
                                    GLOBALS->fontheight * ext);
         }
 
-        draw_hptr_trace_vector_analog(self, cr, colors, t, h, which, ext);
+        draw_hptr_trace_vector_analog(self, cr, colors, t, h, history, which, ext);
         GLOBALS->tims.start += GLOBALS->shift_timebase;
         GLOBALS->tims.end += GLOBALS->shift_timebase;
         return;
@@ -1157,9 +1192,7 @@ static void draw_hptr_trace_vector(GwWaveView *self,
 
     GLOBALS->color_active_in_filter = 1;
 
-    for (;;) {
-        if (!h)
-            break;
+    while (h) {
         tim = (h->time);
         if ((tim > GLOBALS->tims.end) || (tim > GLOBALS->tims.last))
             break;
@@ -1405,10 +1438,16 @@ static void draw_hptr_trace_vector(GwWaveView *self,
         } else {
             newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                       GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
-            h3 = bsearch_node(t->n.nd, newtime);
-            if (h3->time > h->time) {
+            ;
+            GwNodeHistory *next_history = bsearch_node(t->n.nd, newtime, &h3);
+            if (next_history && h3 && h3->time > h->time) {
+                gw_node_history_unref(history);
+                history = next_history;
                 h = h3;
                 continue;
+            }
+            if (next_history) {
+                gw_node_history_unref(next_history);
             }
         }
 
@@ -1417,6 +1456,10 @@ static void draw_hptr_trace_vector(GwWaveView *self,
             ascii = NULL;
         }
         h = h->next;
+    }
+
+    if (history) {
+        gw_node_history_unref(history);
     }
 
     GLOBALS->color_active_in_filter = 0;
@@ -1818,6 +1861,7 @@ static void draw_vptr_trace_analog(GwWaveView *self,
         } else {
             newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                       GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
+            ;
             h3 = bsearch_vector(t->n.vec, newtime);
             if (h3->time > h->time) {
                 h = h3;
@@ -2155,6 +2199,7 @@ static void draw_vptr_trace(GwWaveView *self,
         } else {
             newtime = (((gdouble)(_x1 + WAVE_OPT_SKIP)) * GLOBALS->nspx) +
                       GLOBALS->tims.start /*+GLOBALS->shift_timebase*/; /* skip to next pixel */
+            ;
             h3 = bsearch_vector(t->n.vec, newtime);
             if (h3->time > h->time) {
                 h = h3;

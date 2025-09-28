@@ -11,6 +11,7 @@
 #include "globals.h"
 #include "vcd_saver.h"
 #include <time.h>
+#include "gw-node-history.h"
 
 static void w32redirect_fprintf(int is_trans, FILE *sfd, const char *format, ...)
     G_GNUC_PRINTF(3, 4);
@@ -328,6 +329,7 @@ int save_nodes_to_export_generic(FILE *trans_file,
                                  const char *fname,
                                  int export_typ)
 {
+    GArray *histories = g_array_new(FALSE, FALSE, sizeof(GwNodeHistory *));
     GwTrace *t = trans_head ? trans_head : GLOBALS->traces.first;
     int nodecnt = 0;
     vcdsav_Tree *vt = NULL;
@@ -373,13 +375,20 @@ int save_nodes_to_export_generic(FILE *trans_file,
                 vt = vcdsav_splay(n, vt);
                 if (!vt || vt->item != n) {
                     unsigned char flags = 0;
+                    GwNodeHistory *history = gw_node_get_history_snapshot(n);
+                    GwHistEnt *head = NULL;
 
-                    if (n->head.next)
-                        if (n->head.next->next) {
-                            flags = n->head.next->next->flags;
+                    if (history) {
+                        g_array_append_val(histories, history);
+                        head = &history->head;
+                        if (head->next) {
+                            if (head->next->next) {
+                                flags = head->next->next->flags;
+                            }
                         }
+                    }
 
-                    vt = vcdsav_insert(n, vt, ++nodecnt, flags, &n->head);
+                    vt = vcdsav_insert(n, vt, ++nodecnt, flags, head);
                 }
             }
         } else {
@@ -396,13 +405,20 @@ int save_nodes_to_export_generic(FILE *trans_file,
                             vt = vcdsav_splay(n, vt);
                             if (!vt || vt->item != n) {
                                 unsigned char flags = 0;
+                                GwNodeHistory *history = gw_node_get_history_snapshot(n);
+                                GwHistEnt *head = NULL;
 
-                                if (n->head.next)
-                                    if (n->head.next->next) {
-                                        flags = n->head.next->next->flags;
+                                if (history) {
+                                    g_array_append_val(histories, history);
+                                    head = &history->head;
+                                    if (head->next) {
+                                        if (head->next->next) {
+                                            flags = head->next->next->flags;
+                                        }
                                     }
+                                }
 
-                                vt = vcdsav_insert(n, vt, ++nodecnt, flags, &n->head);
+                                vt = vcdsav_insert(n, vt, ++nodecnt, flags, head);
                             }
                         }
                     }
@@ -448,8 +464,13 @@ int save_nodes_to_export_generic(FILE *trans_file,
         }
     }
 
-    if (!nodecnt)
+    if (!nodecnt) {
+        for (guint j = 0; j < histories->len; j++) {
+            gw_node_history_unref(g_array_index(histories, GwNodeHistory *, j));
+        }
+        g_array_free(histories, TRUE);
         return (VCDSAV_EMPTY);
+    }
 
     GwTime global_time_offset = gw_dump_file_get_global_time_offset(GLOBALS->dump_file);
     GwTime time_scale = gw_dump_file_get_time_scale(GLOBALS->dump_file);
@@ -639,9 +660,7 @@ int save_nodes_to_export_generic(FILE *trans_file,
             if (GLOBALS->hp_vcd_saver_c_1[0]->flags &
                 (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
                 if (GLOBALS->hp_vcd_saver_c_1[0]->flags & GW_HIST_ENT_FLAG_STRING) {
-                    char *vec = GLOBALS->hp_vcd_saver_c_1[0]->hist->v.h_vector
-                                    ? GLOBALS->hp_vcd_saver_c_1[0]->hist->v.h_vector
-                                    : "UNDEF";
+                    char *vec = GLOBALS->hp_vcd_saver_c_1[0]->hist->v.h_vector;
 
                     int vec_slen = strlen(vec);
                     char *vec_escaped = malloc_2(vec_slen * 4 + 1); /* worst case */
@@ -728,6 +747,11 @@ int save_nodes_to_export_generic(FILE *trans_file,
     GLOBALS->hp_vcd_saver_c_1 = NULL;
     free_2(row_data);
     row_data = NULL;
+
+    for (guint j = 0; j < histories->len; j++) {
+        gw_node_history_unref(g_array_index(histories, GwNodeHistory *, j));
+    }
+    g_array_free(histories, TRUE);
 
     if (export_typ != WAVE_EXPORT_TRANS) {
         fclose(GLOBALS->f_vcd_saver_c_1);
@@ -934,12 +958,34 @@ char *output_hier(int is_trans, const char *name)
 /*** output in timing analyzer format ***/
 /***                                  ***/
 /****************************************/
+static void write_hptr_trace(GwTrace *t, GwNodeHistory *history, int *whichptr, GwTime tmin, GwTime tmax);
+static void write_hptr_trace_vector(GwTrace *t, GwNodeHistory *history, int *whichptr, GwTime tmin, GwTime tmax);
+static void write_vptr_trace(GwTrace *t, int *whichptr, GwTime tmin, GwTime tmax);
 
-static void write_hptr_trace(GwTrace *t, int *whichptr, GwTime tmin, GwTime tmax)
+static void write_tim_tracedata(GwTrace *t, int *whichptr, GwTime tmin, GwTime tmax)
 {
-    GwNode *n = t->n.nd;
-    GwHistEnt **ha = n->harray;
-    int numhist = n->numhist;
+    if (!(t->flags & (TR_EXCLUDE | TR_BLANK | TR_ANALOG_BLANK_STRETCH))) {
+        GLOBALS->shift_timebase = t->shift;
+        if (!t->vector) {
+            GwNodeHistory *history = gw_node_get_history_snapshot(t->n.nd);
+            if (history) {
+                if (!t->n.nd->extvals) {
+                    write_hptr_trace(t, history, whichptr, tmin, tmax); /* single-bit */
+                } else {
+                    write_hptr_trace_vector(t, history, whichptr, tmin, tmax); /* multi-bit */
+                }
+                gw_node_history_unref(history);
+            }
+        } else {
+            write_vptr_trace(t, whichptr, tmin, tmax); /* synthesized/concatenated vector */
+        }
+    }
+}
+
+static void write_hptr_trace(GwTrace *t, GwNodeHistory *history, int *whichptr, GwTime tmin, GwTime tmax)
+{
+    GwHistEnt **ha = history ? history->harray : NULL;
+    int numhist = history ? history->numhist : 0;
     int i;
     unsigned char h_val = GW_BIT_X;
     gboolean first;
@@ -1104,11 +1150,10 @@ static int determine_trace_data_type(char *s, int curtype)
     return (curtype);
 }
 
-static void write_hptr_trace_vector(GwTrace *t, int *whichptr, GwTime tmin, GwTime tmax)
+static void write_hptr_trace_vector(GwTrace *t, GwNodeHistory *history, int *whichptr, GwTime tmin, GwTime tmax)
 {
-    GwNode *n = t->n.nd;
-    GwHistEnt **ha = n->harray;
-    int numhist = n->numhist;
+    GwHistEnt **ha = history ? history->harray : NULL;
+    int numhist = history ? history->numhist : 0;
     int i;
     char *h_val = NULL;
     gboolean first;
@@ -1341,22 +1386,6 @@ static void write_vptr_trace(GwTrace *t, int *whichptr, GwTime tmin, GwTime tmax
     if (h_val)
         free_2(h_val);
     (*whichptr)++;
-}
-
-static void write_tim_tracedata(GwTrace *t, int *whichptr, GwTime tmin, GwTime tmax)
-{
-    if (!(t->flags & (TR_EXCLUDE | TR_BLANK | TR_ANALOG_BLANK_STRETCH))) {
-        GLOBALS->shift_timebase = t->shift;
-        if (!t->vector) {
-            if (!t->n.nd->extvals) {
-                write_hptr_trace(t, whichptr, tmin, tmax); /* single-bit */
-            } else {
-                write_hptr_trace_vector(t, whichptr, tmin, tmax); /* multi-bit */
-            }
-        } else {
-            write_vptr_trace(t, whichptr, tmin, tmax); /* synthesized/concatenated vector */
-        }
-    }
 }
 
 int do_timfile_save(const char *fname)

@@ -2,7 +2,24 @@
 #include "gw-node.h"
 #include "gw-bit.h"
 
-void gw_expand_info_free(GwExpandInfo *self) {
+GwNodeHistory *gw_node_get_history_snapshot(GwNode *self)
+{
+    g_return_val_if_fail(self != NULL, NULL);
+    GwNodeHistory *history = g_atomic_pointer_get(&self->active_history);
+    if (history) {
+        gw_node_history_ref(history);
+    }
+    return history;
+}
+
+GwNodeHistory *gw_node_publish_new_history(GwNode *self, GwNodeHistory *history)
+{
+    g_return_val_if_fail(self != NULL, NULL);
+    return g_atomic_pointer_exchange(&self->active_history, history);
+}
+
+void gw_expand_info_free(GwExpandInfo *self)
+{
     g_return_if_fail(self != NULL);
 
     g_free(self->narray);
@@ -18,6 +35,11 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         return NULL;
     }
 
+    GwNodeHistory *history = gw_node_get_history_snapshot(self);
+    if (history == NULL) {
+        return NULL;
+    }
+
     gint msb = self->msi;
     gint lsb = self->lsi;
     gint width = ABS(msb - lsb) + 1;
@@ -25,6 +47,7 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     gint actual = msb;
 
     GwNode **narray = g_new0(GwNode *, width);
+    GwNodeHistory **histories = g_new0(GwNodeHistory *, width);
 
     GwExpandInfo *rc = g_new0(GwExpandInfo, 1);
     rc->narray = narray;
@@ -94,31 +117,14 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     memcpy(nam, namex, offset);
 
     // make quick array lookup for aet display--normally this is done in addnode
-    if (self->harray == NULL) {
-        GwHistEnt *histpnt = &(self->head);
-        int histcount = 0;
-
-        while (histpnt) {
-            histcount++;
-            histpnt = histpnt->next;
-        }
-
-        self->numhist = histcount;
-
-        GwHistEnt **harray = g_new(GwHistEnt *, histcount);
-        self->harray = harray;
-
-        histpnt = &(self->head);
-        for (i = 0; i < histcount; i++) {
-            *harray = histpnt;
-            harray++;
-            histpnt = histpnt->next;
-        }
+    if (history->harray == NULL) {
+        gw_node_history_regenerate_harray(history);
     }
 
-    GwHistEnt *h = &(self->head);
+    GwHistEnt *h = &history->head;
     while (h) {
         if (h->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
+            gw_node_history_unref(history);
             return NULL;
         }
         h = h->next;
@@ -133,6 +139,8 @@ GwExpandInfo *gw_node_expand(GwNode *self)
 
     for (i = 0; i < width; i++) {
         narray[i] = g_new0(GwNode, 1);
+        histories[i] = gw_node_history_new();
+
         if (!is_2d) {
             sprintf(nam + offset, "[%d]", actual);
         } else {
@@ -157,23 +165,25 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         narray[i]->expansion = exp1; /* can be safely deleted if expansion set like here */
     }
 
-    for (i = 0; i < self->numhist; i++) {
-        h = self->harray[i];
+    for (i = 0; i < history->numhist; i++) {
+        h = history->harray[i];
         if (h->time < 0 || h->time >= GW_TIME_MAX - 1) {
             for (gint j = 0; j < width; j++) {
-                if (narray[j]->curr) {
+                GwNodeHistory *h_new = histories[j];
+
+                if (h_new->curr) {
                     GwHistEnt *htemp = g_new0(GwHistEnt, 1);
                     htemp->v.h_val = GW_BIT_X; /* 'x' */
                     htemp->time = h->time;
-                    narray[j]->curr->next = htemp;
-                    narray[j]->curr = htemp;
+                    h_new->curr->next = htemp;
+                    h_new->curr = htemp;
                 } else {
-                    narray[j]->head.v.h_val = GW_BIT_X; /* 'x' */
-                    narray[j]->head.time = h->time;
-                    narray[j]->curr = &(narray[j]->head);
+                    h_new->head.v.h_val = GW_BIT_X; /* 'x' */
+                    h_new->head.time = h->time;
+                    h_new->curr = &h_new->head;
                 }
 
-                narray[j]->numhist++;
+                h_new->numhist++;
             }
         } else {
             for (gint j = 0; j < width; j++) {
@@ -216,27 +226,28 @@ GwExpandInfo *gw_node_expand(GwNode *self)
                         break; /* leave val alone as it's been converted already.. */
                 }
 
+                GwNodeHistory *h_new = histories[j];
+
                 // curr will have been established already by 'x' at time: -1
-                if (narray[j]->curr->v.h_val != val) {
+                if (h_new->curr->v.h_val != val) {
                     GwHistEnt *htemp = g_new0(GwHistEnt, 1);
                     htemp->v.h_val = val;
                     htemp->time = h->time;
-                    narray[j]->curr->next = htemp;
-                    narray[j]->curr = htemp;
-                    narray[j]->numhist++;
+                    h_new->curr->next = htemp;
+                    h_new->curr = htemp;
+                    h_new->numhist++;
                 }
             }
         }
     }
 
+    gw_node_history_unref(history);
+
     for (i = 0; i < width; i++) {
-        narray[i]->harray = g_new0(GwHistEnt *, narray[i]->numhist);
-        GwHistEnt *htemp = &(narray[i]->head);
-        for (gint j = 0; j < narray[i]->numhist; j++) {
-            narray[i]->harray[j] = htemp;
-            htemp = htemp->next;
-        }
+        gw_node_history_regenerate_harray(histories[i]);
+        gw_node_publish_new_history(narray[i], histories[i]);
     }
+    g_free(histories);
 
     return rc;
 }

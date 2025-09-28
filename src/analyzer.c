@@ -25,6 +25,8 @@
 #include "ptranslate.h"
 #include "ttranslate.h"
 #include "analyzer.h"
+#include "gw-node.h"
+#include "gw-node-history.h"
 #include <gtkwave.h>
 
 void UpdateTraceSelection(GwTrace *t);
@@ -435,10 +437,6 @@ int InsertBlankTrace(char *comment, TraceFlagsType different_flags)
 int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
 {
     GwTrace *t;
-    GwHistEnt *histpnt;
-    GwHistEnt **harray;
-    int histcount;
-    int i;
 
     if (!nd)
         return (0); /* passed it a null node ptr by mistake */
@@ -453,30 +451,14 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
         return (0);
     }
 
-    if (!nd->harray) /* make quick array lookup for aet display */
+    GwNodeHistory *history = gw_node_get_history_snapshot(nd);
+    if(history)
     {
-        histpnt = &(nd->head);
-        histcount = 0;
-
-        while (histpnt) {
-            histcount++;
-            histpnt = histpnt->next;
+        if (!history->harray) /* make quick array lookup for aet display */
+        {
+            gw_node_history_regenerate_harray(history);
         }
-
-        nd->numhist = histcount;
-
-        if (!(nd->harray = harray = malloc_2(histcount * sizeof(GwHistEnt *)))) {
-            fprintf(stderr, "Out of memory, can't add to analyzer\n");
-            free_2(t);
-            return (0);
-        }
-
-        histpnt = &(nd->head);
-        for (i = 0; i < histcount; i++) {
-            *harray = histpnt;
-            harray++;
-            histpnt = histpnt->next;
-        }
+        gw_node_history_unref(history);
     }
 
     if (aliasname) {

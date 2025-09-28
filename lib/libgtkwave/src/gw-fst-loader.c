@@ -2,6 +2,8 @@
 #include "gw-fst-file.h"
 #include "gw-fst-file-private.h"
 #include "gw-util.h"
+#include "gw-node.h"
+#include "gw-node-history.h"
 #include <fstapi.h>
 
 static GwTreeKind fst_scope_type_to_gw_tree_kind(enum fstScopeType scope_type);
@@ -912,8 +914,10 @@ static GwDumpFile *gw_fst_loader_load(GwLoader *loader, const char *fname, GErro
             n->extvals = 1;
         }
 
-        n->head.time = -1; // mark 1st node as negative time
-        n->head.v.h_val = GW_BIT_X;
+        GwNodeHistory *history = gw_node_history_new();
+        history->head.time = -1;
+        history->head.v.h_val = GW_BIT_X;
+        gw_node_publish_new_history(n, history);
 
         s->n = n;
     }

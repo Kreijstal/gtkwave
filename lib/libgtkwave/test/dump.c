@@ -90,37 +90,42 @@ static void dump_node(GwDumpFile *file, GwNode *node)
 
     g_print("        extvals: %d\n", node->extvals);
     g_print("        msi, lsi: %d, %d\n", node->msi, node->lsi);
-    g_print("        numhist: %d\n", node->numhist);
 
-    g_print("        transitions:\n");
+    GwNodeHistory *history = gw_node_get_history_snapshot(node);
+    if (history) {
+        g_print("        numhist: %d\n", history->numhist);
 
-    // TODO: use gw_hist_ent_to_string
-    for (GwHistEnt *iter = &node->head; iter != NULL; iter = iter->next) {
-        g_print("            ");
-        if (iter->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
-            if (iter->flags & GW_HIST_ENT_FLAG_STRING) {
+        g_print("        transitions:\n");
+
+        // TODO: use gw_hist_ent_to_string
+        for (GwHistEnt *iter = &history->head; iter != NULL; iter = iter->next) {
+            g_print("            ");
+            if (iter->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
+                if (iter->flags & GW_HIST_ENT_FLAG_STRING) {
+                    if (iter->time < 0) {
+                        g_print("?");
+                    } else {
+                        g_print("\"%s\"", iter->v.h_vector);
+                    }
+                } else {
+                    g_print("%f", iter->v.h_double);
+                }
+            } else if (node->msi == node->lsi) {
+                g_print("%c", gw_bit_to_char(iter->v.h_val));
+            } else {
+                // TODO: VCD files with aliased vectors cause a segfault without this check
                 if (iter->time < 0) {
                     g_print("?");
                 } else {
-                    g_print("\"%s\"", iter->v.h_vector);
-                }
-            } else {
-                g_print("%f", iter->v.h_double);
-            }
-        } else if (node->msi == node->lsi) {
-            g_print("%c", gw_bit_to_char(iter->v.h_val));
-        } else {
-            // TODO: VCD files with aliased vectors cause a segfault without this check
-            if (iter->time < 0) {
-                g_print("?");
-            } else {
-                gint bits = ABS(node->msi - node->lsi) + 1;
-                for (gint i = 0; i < bits; i++) {
-                    g_print("%c", gw_bit_to_char(iter->v.h_vector[i]));
+                    gint bits = ABS(node->msi - node->lsi) + 1;
+                    for (gint i = 0; i < bits; i++) {
+                        g_print("%c", gw_bit_to_char(iter->v.h_vector[i]));
+                    }
                 }
             }
+            g_print(" @ %" GW_TIME_FORMAT "\n", iter->time);
         }
-        g_print(" @ %" GW_TIME_FORMAT "\n", iter->time);
+        gw_node_history_unref(history);
     }
 }
 
@@ -159,12 +164,15 @@ static void dump_aliases(GwDumpFile *file)
     for (guint i = 0; i < gw_facs_get_length(facs); i++) {
         GwSymbol *symbol = gw_facs_get(facs, i);
         GwNode *node = symbol->n;
+        GwNodeHistory *history = gw_node_get_history_snapshot(node);
+        if (!history) continue;
 
-        GwHistEnt *h = node->head.next;
+        GwHistEnt *h = history->head.next;
 
         GSList *old = g_hash_table_lookup(next_pointers, h);
         GSList *new = g_slist_prepend(old, node->nname);
         g_hash_table_replace(next_pointers, h, new);
+        gw_node_history_unref(history);
     }
 
     // Convert the hash table into a list of strings

@@ -12,6 +12,7 @@
 #include "gtk23compat.h"
 #include "strace.h"
 #include "currenttime.h"
+#include "gw-node-history.h"
 
 #define WV_STRACE_CTX "strace_ctx"
 
@@ -578,6 +579,7 @@ void tracesearchbox(const char *title, GCallback func, gpointer data)
  */
 static void strace_search_2(int direction, int is_last_iteration)
 {
+    GArray *histories = g_array_new(FALSE, FALSE, sizeof(GwNodeHistory *));
     struct strace *s;
     GwTime basetime, maxbase, sttim, fintim;
     GwTrace *t;
@@ -608,15 +610,23 @@ static void strace_search_2(int direction, int is_last_iteration)
                 t = s->trace;
                 GLOBALS->shift_timebase = t->shift;
                 if (!(t->vector)) {
-                    GwHistEnt *h;
+                    GwHistEnt *h = NULL;
                     GwHistEnt **hp;
                     GwUTime utt;
                     GwTime tt;
 
-                    /* h= */ bsearch_node(t->n.nd, basetime - t->shift); /* scan-build */
+                    GwNodeHistory *history = bsearch_node(t->n.nd, basetime - t->shift, &h);
+                    if (!history) {
+                        goto search_2_fail;
+                    }
+                    g_array_append_val(histories, history);
+
                     hp = GLOBALS->max_compare_index;
-                    if ((hp == &(t->n.nd->harray[1])) || (hp == &(t->n.nd->harray[0])))
-                        return;
+                    if (history->harray &&
+                        ((hp == &(history->harray[1])) || (hp == &(history->harray[0])))) {
+                        goto search_2_fail;
+                    }
+
                     if (basetime == ((*hp)->time + GLOBALS->shift_timebase))
                         hp--;
                     h = *hp;
@@ -631,10 +641,13 @@ static void strace_search_2(int direction, int is_last_iteration)
                     GwUTime utt;
                     GwTime tt;
 
-                    /* v= */ bsearch_vector(t->n.vec, basetime - t->shift); /* scan-build */
+                    v = bsearch_vector(t->n.vec, basetime - t->shift);
                     vp = GLOBALS->vmax_compare_index;
-                    if ((vp == &(t->n.vec->vectors[1])) || (vp == &(t->n.vec->vectors[0])))
-                        return;
+                    if ((vp == &(t->n.vec->vectors[1])) ||
+                        (vp == &(t->n.vec->vectors[0]))) {
+                        goto search_2_fail;
+                    }
+
                     if (basetime == ((*vp)->time + GLOBALS->shift_timebase))
                         vp--;
                     v = *vp;
@@ -655,17 +668,21 @@ static void strace_search_2(int direction, int is_last_iteration)
                 t = s->trace;
                 GLOBALS->shift_timebase = t->shift;
                 if (!(t->vector)) {
-                    GwHistEnt *h;
+                    GwHistEnt *h = NULL;
                     GwUTime utt;
                     GwTime tt;
 
-                    h = bsearch_node(t->n.nd, basetime - t->shift);
-                    while (h->next && h->time == h->next->time)
-                        h = h->next;
+                    GwNodeHistory *history = bsearch_node(t->n.nd, basetime - t->shift, &h);
+                    if (!history) {
+                        goto search_2_fail;
+                    }
+                    g_array_append_val(histories, history);
+                    if (h)
+                        while (h->next && h->time == h->next->time)
+                            h = h->next;
                     if ((whichpass) || gw_marker_is_enabled(primary_marker))
-                        h = h->next;
-                    if (!h)
-                        return;
+                        if (h) h = h->next;
+                    if (!h) goto search_2_fail;
                     s->his.h = h;
                     utt = strace_adjust(h->time, GLOBALS->shift_timebase);
                     tt = utt;
@@ -677,12 +694,10 @@ static void strace_search_2(int direction, int is_last_iteration)
                     GwTime tt;
 
                     v = bsearch_vector(t->n.vec, basetime - t->shift);
-                    while (v->next && v->time == v->next->time)
-                        v = v->next;
+                    if (v) while (v->next && v->time == v->next->time) v = v->next;
                     if ((whichpass) || gw_marker_is_enabled(primary_marker))
-                        v = v->next;
-                    if (!v)
-                        return;
+                        if (v) v = v->next;
+                    if (!v) goto search_2_fail;
                     s->his.v = v;
                     utt = strace_adjust(v->time, GLOBALS->shift_timebase);
                     tt = utt;
@@ -704,8 +719,13 @@ static void strace_search_2(int direction, int is_last_iteration)
 
             if ((!t->vector) && (!(t->n.nd->extvals))) {
                 if (strace_adjust(s->his.h->time, GLOBALS->shift_timebase) != maxbase) {
-                    s->his.h = bsearch_node(t->n.nd, maxbase - t->shift);
-                    while (s->his.h->next && s->his.h->time == s->his.h->next->time)
+                    GwHistEnt *h = NULL;
+                    GwNodeHistory *history = bsearch_node(t->n.nd, maxbase - t->shift, &h);
+                    if (history) {
+                        g_array_append_val(histories, history);
+                    }
+                    s->his.h = h;
+                    if (s->his.h) while (s->his.h->next && s->his.h->time == s->his.h->next->time)
                         s->his.h = s->his.h->next;
                 }
 
@@ -794,10 +814,16 @@ static void strace_search_2(int direction, int is_last_iteration)
                     chval = convert_ascii(t, s->his.v);
                 } else {
                     if (strace_adjust(s->his.h->time, GLOBALS->shift_timebase) != maxbase) {
-                        s->his.h = bsearch_node(t->n.nd, maxbase - t->shift);
-                        while (s->his.h->next && s->his.h->time == s->his.h->next->time) {
-                            s->his.h = s->his.h->next;
+                        GwHistEnt *h = NULL;
+                        GwNodeHistory *history = bsearch_node(t->n.nd, maxbase - t->shift, &h);
+                        if (history) {
+                            g_array_append_val(histories, history);
                         }
+                        s->his.h = h;
+                        if (s->his.h)
+                            while (s->his.h->next && s->his.h->time == s->his.h->next->time) {
+                                s->his.h = s->his.h->next;
+                            }
                     }
                     if (s->his.h->flags & GW_HIST_ENT_FLAG_REAL) {
                         if (!(s->his.h->flags & GW_HIST_ENT_FLAG_STRING)) {
@@ -899,8 +925,9 @@ static void strace_search_2(int direction, int is_last_iteration)
             s = s->next;
         }
 
-        if ((maxbase < sttim) || (maxbase > fintim))
-            return;
+        if ((maxbase < sttim) || (maxbase > fintim)) {
+            goto search_2_fail;
+        }
 
         DEBUG(printf("Maxbase: %" GW_TIME_FORMAT ", total traces: %d\n", maxbase, totaltraces));
         s = GLOBALS->strace_ctx->straces;
@@ -976,6 +1003,12 @@ static void strace_search_2(int direction, int is_last_iteration)
 
         redraw_signals_and_waves();
     }
+
+search_2_fail:
+    for (guint i = 0; i < histories->len; i++) {
+        gw_node_history_unref(g_array_index(histories, GwNodeHistory *, i));
+    }
+    g_array_free(histories, TRUE);
 }
 
 void strace_search(int direction)
@@ -995,6 +1028,7 @@ void strace_search(int direction)
  */
 GwTime strace_timetrace(GwTime basetime, int notfirst)
 {
+    GArray *histories = g_array_new(FALSE, FALSE, sizeof(GwNodeHistory *));
     struct strace *s;
     GwTime maxbase, fintim;
     GwTrace *t;
@@ -1010,21 +1044,23 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
             t = s->trace;
             GLOBALS->shift_timebase = t->shift;
             if (!(t->vector)) {
-                GwHistEnt *h;
+                GwHistEnt *h = NULL;
                 GwUTime utt;
                 GwTime tt;
 
-                h = bsearch_node(t->n.nd, basetime - t->shift);
+                GwNodeHistory *history = bsearch_node(t->n.nd, basetime - t->shift, &h);
+                if (history) {
+                    g_array_append_val(histories, history);
+                }
                 s->his.h = h;
-                while (h->time == h->next->time) {
+                if (h) while (h->next && h->time == h->next->time) {
                     h = h->next;
                 }
                 if ((whichpass) || (notfirst)) {
-                    h = h->next;
+                    if (h) h = h->next;
                 }
-                if (h == NULL) {
-                    return MAX_HISTENT_TIME;
-                }
+                if (h == NULL) goto timetrace_fail;
+
                 utt = strace_adjust(h->time, GLOBALS->shift_timebase);
                 tt = utt;
                 if (tt < maxbase)
@@ -1035,12 +1071,11 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
                 GwTime tt;
 
                 v = bsearch_vector(t->n.vec, basetime - t->shift);
+                if (v) while (v->next && v->time == v->next->time) v = v->next;
                 if ((whichpass) || (notfirst)) {
-                    v = v->next;
+                    if (v) v = v->next;
                 }
-                if (v == NULL) {
-                    return MAX_HISTENT_TIME;
-                }
+                if (v == NULL) goto timetrace_fail;
                 s->his.v = v;
                 utt = strace_adjust(v->time, GLOBALS->shift_timebase);
                 tt = utt;
@@ -1061,8 +1096,13 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
 
             if ((!t->vector) && (!(t->n.nd->extvals))) {
                 if (strace_adjust(s->his.h->time, GLOBALS->shift_timebase) != maxbase) {
-                    s->his.h = bsearch_node(t->n.nd, maxbase - t->shift);
-                    while (s->his.h->next && s->his.h->time == s->his.h->next->time) {
+                    GwHistEnt *h = NULL;
+                    GwNodeHistory *history = bsearch_node(t->n.nd, maxbase - t->shift, &h);
+                    if (history) {
+                        g_array_append_val(histories, history);
+                    }
+                    s->his.h = h;
+                    if (s->his.h) while (s->his.h->next && s->his.h->time == s->his.h->next->time) {
                         s->his.h = s->his.h->next;
                     }
                 }
@@ -1072,7 +1112,7 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
                     h_val = gw_bit_invert(h_val);
                 }
 
-                str[0] = gw_bit_to_char(s->his.h->v.h_val);
+                str[0] = gw_bit_to_char(h_val);
                 str[1] = 0x00;
 
                 switch (s->value) {
@@ -1155,10 +1195,16 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
                     chval = convert_ascii(t, s->his.v);
                 } else {
                     if (strace_adjust(s->his.h->time, GLOBALS->shift_timebase) != maxbase) {
-                        s->his.h = bsearch_node(t->n.nd, maxbase - t->shift);
-                        while (s->his.h->next && s->his.h->time == s->his.h->next->time) {
-                            s->his.h = s->his.h->next;
+                        GwHistEnt *h = NULL;
+                        GwNodeHistory *history = bsearch_node(t->n.nd, maxbase - t->shift, &h);
+                        if (history) {
+                            g_array_append_val(histories, history);
                         }
+                        s->his.h = h;
+                        if (s->his.h)
+                            while (s->his.h->next && s->his.h->time == s->his.h->next->time) {
+                                s->his.h = s->his.h->next;
+                            }
                     }
                     if (s->his.h->flags & GW_HIST_ENT_FLAG_REAL) {
                         if (!(s->his.h->flags & GW_HIST_ENT_FLAG_STRING)) {
@@ -1263,8 +1309,10 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
             s = s->next;
         }
 
-        if (maxbase > fintim)
-            return (MAX_HISTENT_TIME);
+        if (maxbase > fintim) {
+            maxbase = MAX_HISTENT_TIME;
+            goto timetrace_fail;
+        }
 
         DEBUG(printf("Maxbase: %" GW_TIME_FORMAT ", total traces: %d\n", maxbase, totaltraces));
         s = GLOBALS->strace_ctx->straces;
@@ -1307,6 +1355,12 @@ GwTime strace_timetrace(GwTime basetime, int notfirst)
 
         basetime = maxbase;
     }
+
+timetrace_fail:
+    for (guint i = 0; i < histories->len; i++) {
+        gw_node_history_unref(g_array_index(histories, GwNodeHistory *, i));
+    }
+    g_array_free(histories, TRUE);
 
     return (maxbase);
 }

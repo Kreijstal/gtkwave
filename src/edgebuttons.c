@@ -113,15 +113,20 @@ static void edge_search_2(int direction, int is_last_iteration)
                     GwUTime utt;
                     GwTime tt;
 
-                    /* h= */ bsearch_node(t->n.nd, basetime - t->shift); /* scan-build */
+                    GwNodeHistory *history = bsearch_node(t->n.nd, basetime - t->shift, &h);
+                    if (!history) return;
                     hp = GLOBALS->max_compare_index;
-                    if ((hp == &(t->n.nd->harray[1])) || (hp == &(t->n.nd->harray[0])))
+                    if ((hp == &(history->harray[1])) || (hp == &(history->harray[0])))
+                    {
+                        gw_node_history_unref(history);
                         return;
+                    }
                     if (basetime == ((*hp)->time + GLOBALS->shift_timebase))
                         hp--;
                     h = *hp;
                     s->his.h = h;
                     utt = strace_adjust(h->time, GLOBALS->shift_timebase);
+                    gw_node_history_unref(history);
                     tt = utt;
                     if (tt > maxbase)
                         maxbase = tt;
@@ -158,15 +163,26 @@ static void edge_search_2(int direction, int is_last_iteration)
                     GwHistEnt *h;
                     GwUTime utt;
                     GwTime tt;
+                    GwNodeHistory *history;
 
-                    h = bsearch_node(t->n.nd, basetime - t->shift);
-                    while (h->next && h->time == h->next->time)
-                        h = h->next;
-                    if ((whichpass) || gw_marker_is_enabled(primary_marker))
-                        h = h->next;
+                    history = bsearch_node(t->n.nd, basetime - t->shift, &h);
+                    if(history)
+                    {
+                        if(h)
+                        {
+                            while (h->next && h->time == h->next->time)
+                                h = h->next;
+                            if ((whichpass) || gw_marker_is_enabled(primary_marker))
+                                h = h->next;
+                        }
+                    }
                     if (!h)
+                    {
+                        if(history) gw_node_history_unref(history);
                         return;
+                    }
                     s->his.h = h;
+                    gw_node_history_unref(history);
                     utt = strace_adjust(h->time, GLOBALS->shift_timebase);
                     tt = utt;
                     if (tt < maxbase)
@@ -208,9 +224,14 @@ static void edge_search_2(int direction, int is_last_iteration)
 
             if ((!t->vector) && (!(t->n.nd->extvals))) {
                 if (strace_adjust(s->his.h->time, GLOBALS->shift_timebase) != maxbase) {
-                    s->his.h = bsearch_node(t->n.nd, maxbase - t->shift);
-                    while (s->his.h->next && s->his.h->time == s->his.h->next->time)
-                        s->his.h = s->his.h->next;
+                    GwNodeHistory *history = bsearch_node(t->n.nd, maxbase - t->shift, &s->his.h);
+                    if(history) {
+                        if(s->his.h) {
+                           while (s->his.h->next && s->his.h->time == s->his.h->next->time)
+                               s->his.h = s->his.h->next;
+                        }
+                        gw_node_history_unref(history);
+                    }
                 }
 /* commented out, maybe will have possible future expansion later,
  * this was cut and pasted from strace.c */
@@ -294,9 +315,14 @@ static void edge_search_2(int direction, int is_last_iteration)
                     chval = convert_ascii(t, s->his.v);
                 } else {
                     if (strace_adjust(s->his.h->time, GLOBALS->shift_timebase) != maxbase) {
-                        s->his.h = bsearch_node(t->n.nd, maxbase - t->shift);
-                        while (s->his.h->next && s->his.h->time == s->his.h->next->time)
-                            s->his.h = s->his.h->next;
+                        GwNodeHistory *history = bsearch_node(t->n.nd, maxbase - t->shift, &s->his.h);
+                        if(history) {
+                            if(s->his.h) {
+                                while (s->his.h->next && s->his.h->time == s->his.h->next->time)
+                                    s->his.h = s->his.h->next;
+                            }
+                            gw_node_history_unref(history);
+                        }
                     }
                     if (s->his.h->flags & GW_HIST_ENT_FLAG_REAL) {
                         if (!(s->his.h->flags & GW_HIST_ENT_FLAG_STRING)) {

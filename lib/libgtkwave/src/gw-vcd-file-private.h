@@ -16,6 +16,19 @@ struct _GwVcdFile
     GwHistEntFactory *hist_ent_factory;
 };
 
+void gw_vcd_file_import_trace_scalar(GwVcdFile *self,
+                                     GwNode *np,
+                                     GwNodeHistory *history,
+                                     GwVlistReader *reader);
+void gw_vcd_file_import_trace_vector(GwVcdFile *self,
+                                     GwNode *np,
+                                     GwNodeHistory *history,
+                                     GwVlistReader *reader,
+                                     guint32 len);
+void gw_vcd_file_import_trace_real(GwVcdFile *self, GwNodeHistory *history, GwVlistReader *reader);
+void gw_vcd_file_import_trace_string(GwVcdFile *self, GwNodeHistory *history, GwVlistReader *reader);
+
+
 // The unit separator control character is used to represent the hierarchy
 // delimiter internally.
 #define VCD_HIERARCHY_DELIMITER '\x1F'

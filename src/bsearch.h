@@ -13,7 +13,7 @@
 #define BSEARCH_NODES_VECTORS_H
 
 int bsearch_timechain(GwTime key);
-GwHistEnt *bsearch_node(GwNode *n, GwTime key);
+GwNodeHistory *bsearch_node(GwNode *n, GwTime key, GwHistEnt **histent);
 GwVectorEnt *bsearch_vector(GwBitVector *b, GwTime key);
 char *bsearch_trunc(char *ascii, int maxlen);
 char *bsearch_trunc_print(char *ascii, int maxlen);

@@ -6,6 +6,8 @@
 #include "gw-ghw-file.h"
 #include "gw-ghw-file-private.h"
 #include "gw-time.h"
+#include "gw-node.h"
+#include "gw-node-history.h"
 
 // TODO: remove!
 #define WAVE_T_WHICH_UNDEFINED_COMPNAME (-1)
@@ -35,6 +37,7 @@ struct _GwGhwLoader
     GwTime max_time;
 
     GwHistEntFactory *hist_ent_factory;
+    GwNodeHistory **histories;
 };
 
 G_DEFINE_TYPE(GwGhwLoader, gw_ghw_loader, GW_TYPE_LOADER)
@@ -743,11 +746,16 @@ void facs_debug(GwGhwLoader *self)
         if (n->extvals) {
             printf("  ext: %d - %d\n", n->msi, n->lsi);
         }
-        for (GwHistEnt *h = &n->head; h; h = h->next) {
-            printf("  time:%" GW_TIME_FORMAT " flags:%02x vect:%p\n",
-                   h->time,
-                   h->flags,
-                   h->v.h_vector);
+
+        GwNodeHistory *history = gw_node_get_history_snapshot(n);
+        if (history) {
+            for (GwHistEnt *h = &history->head; h; h = h->next) {
+                printf("  time:%" GW_TIME_FORMAT " flags:%02x vect:%p\n",
+                       h->time,
+                       h->flags,
+                       h->v.h_vector);
+            }
+            gw_node_history_unref(history);
         }
     }
 }
@@ -886,6 +894,7 @@ static void add_history(GwGhwLoader *self, GwNode *n, int sig_num)
     int flags;
     int is_vector = 0;
     int is_double = 0;
+    GwNodeHistory *history = self->histories[sig_num];
 
     if (sig_type == NULL) {
         return;
@@ -933,15 +942,20 @@ static void add_history(GwGhwLoader *self, GwNode *n, int sig_num)
             return;
     }
 
-    if (!n->curr) {
+    if (!history->curr) {
+        history->head.flags = flags;
+        history->head.time = -2;
+        history->curr = &history->head;
+        history->numhist++;
+
         he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
         he->flags = flags;
         he->time = -1;
         he->v.h_vector = NULL;
 
-        n->head.next = he;
-        n->curr = he;
-        n->head.time = -2;
+        history->curr->next = he;
+        history->curr = he;
+        history->numhist++;
     }
 
     he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
@@ -1017,47 +1031,48 @@ static void add_history(GwGhwLoader *self, GwNode *n, int sig_num)
     }
 
     /* deglitch */
-    if (n->curr->time == he->time) {
+    if (history->curr->time == he->time) {
         int gl_add = 0;
 
-        if (n->curr->time) /* filter out time zero glitches */
+        if (history->curr->time) /* filter out time zero glitches */
         {
             gl_add = 1;
         }
 
         self->num_glitches += gl_add;
 
-        if (!(n->curr->flags & GW_HIST_ENT_FLAG_GLITCH)) {
+        if (!(history->curr->flags & GW_HIST_ENT_FLAG_GLITCH)) {
             if (gl_add) {
-                n->curr->flags |= GW_HIST_ENT_FLAG_GLITCH; /* set the glitch flag */
+                history->curr->flags |= GW_HIST_ENT_FLAG_GLITCH; /* set the glitch flag */
                 self->num_glitch_regions++;
             }
         }
 
         if (is_double) {
-            n->curr->v.h_double = he->v.h_double;
+            history->curr->v.h_double = he->v.h_double;
         } else if (is_vector) {
-            if (n->curr->v.h_vector && sig_type->kind != ghdl_rtik_type_b2 &&
+            if (history->curr->v.h_vector && sig_type->kind != ghdl_rtik_type_b2 &&
                 sig_type->kind != ghdl_rtik_type_e8)
-                g_free(n->curr->v.h_vector);
-            n->curr->v.h_vector = he->v.h_vector;
+                g_free(history->curr->v.h_vector);
+            history->curr->v.h_vector = he->v.h_vector;
             /* can't free up this "he" because of block allocation so assume it's dead */
         } else {
-            n->curr->v.h_val = he->v.h_val;
+            history->curr->v.h_val = he->v.h_val;
         }
         return;
     } else /* look for duplicate dumps of same value at adjacent times */
     {
         if (!is_vector & !is_double) {
-            if (n->curr->v.h_val == he->v.h_val) {
+            if (history->curr->v.h_val == he->v.h_val) {
                 return;
                 /* can't free up this "he" because of block allocation so assume it's dead */
             }
         }
     }
 
-    n->curr->next = he;
-    n->curr = he;
+    history->curr->next = he;
+    history->curr = he;
+    history->numhist++;
 }
 
 static void add_tail(GwGhwLoader *self)
@@ -1068,21 +1083,22 @@ static void add_tail(GwGhwLoader *self)
     for (j = 1; j >= 0; j--) /* add two endcaps */
         for (i = 0; i < self->h->nbr_sigs; i++) {
             struct ghw_sig *sig = &self->h->sigs[i];
-            GwNode *n = self->nxp[i];
+            GwNodeHistory *history = self->histories[i];
             GwHistEnt *he;
 
-            if (sig->type == NULL || n == NULL || !n->curr)
+            if (sig->type == NULL || history == NULL || !history->curr)
                 continue;
 
             /* Copy the last one.  */
             he = gw_hist_ent_factory_alloc(self->hist_ent_factory);
-            *he = *n->curr;
+            *he = *history->curr;
             he->time = GW_TIME_MAX - j;
             he->next = NULL;
 
             /* Append.  */
-            n->curr->next = he;
-            n->curr = he;
+            history->curr->next = he;
+            history->curr = he;
+            history->numhist++;
         }
 }
 
@@ -1190,8 +1206,10 @@ GwDumpFile *gw_ghw_loader_load(GwLoader *loader, const gchar *fname, GError **er
     self->asbuf = g_malloc(4097);
 
     self->nxp = g_new0(GwNode *, handle.nbr_sigs);
+    self->histories = g_new0(GwNodeHistory *, handle.nbr_sigs);
     for (ui = 0; ui < handle.nbr_sigs; ui++) {
         self->nxp[ui] = g_new0(GwNode, 1);
+        self->histories[ui] = gw_node_history_new();
     }
 
     self->treeroot = build_hierarchy(self, handle.hie);
@@ -1201,6 +1219,18 @@ GwDumpFile *gw_ghw_loader_load(GwLoader *loader, const gchar *fname, GError **er
     create_facs(self);
     read_traces(self);
     add_tail(self);
+
+    for (ui = 0; ui < handle.nbr_sigs; ui++) {
+        GwNodeHistory *history = self->histories[ui];
+        if (history && history->curr) {
+            gw_node_history_regenerate_harray(history);
+            gw_node_publish_new_history(self->nxp[ui], history);
+        } else if (history) {
+            gw_node_history_unref(history);
+        }
+    }
+    g_free(self->histories);
+    self->histories = NULL;
 
     set_fac_name(self);
 

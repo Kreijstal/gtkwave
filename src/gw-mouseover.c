@@ -118,9 +118,11 @@ static gchar *local_trace_asciival(GwTrace *t, GwTime tim)
             GwVectorEnt *v = bsearch_vector(t->n.vec, tim - t->shift);
             return convert_ascii(t, v);
         } else {
-            char *str;
-            GwHistEnt *h_ptr;
-            if ((h_ptr = bsearch_node(t->n.nd, tim - t->shift))) {
+            GwHistEnt *h_ptr = NULL;
+            GwNodeHistory *history = bsearch_node(t->n.nd, tim - t->shift, &h_ptr);
+
+            if (h_ptr) {
+                char *str;
                 if (!t->n.nd->extvals) {
                     GwMarker *primary_marker = gw_project_get_primary_marker(GLOBALS->project);
                     GwTime primary_pos = gw_marker_get_position(primary_marker);
@@ -139,8 +141,6 @@ static gchar *local_trace_asciival(GwTrace *t, GwTime tim)
 
                     str = (char *)calloc_2(1, 2 * sizeof(char));
                     str[0] = gw_bit_to_char(h_val);
-
-                    return str;
                 } else {
                     if (h_ptr->flags & GW_HIST_ENT_FLAG_REAL) {
                         if (!(h_ptr->flags & GW_HIST_ENT_FLAG_STRING)) {
@@ -151,9 +151,13 @@ static gchar *local_trace_asciival(GwTrace *t, GwTime tim)
                     } else {
                         str = convert_ascii_vec(t, h_ptr->v.h_vector);
                     }
-
-                    return str;
                 }
+                gw_node_history_unref(history);
+                return str;
+            }
+
+            if (history) {
+                gw_node_history_unref(history);
             }
         }
     }

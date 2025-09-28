@@ -15,6 +15,8 @@
 #include "globals.h"
 #include <config.h>
 #include "analyzer.h"
+#include "gw-node.h"
+#include "gw-node-history.h"
 #include "symbol.h"
 #include "lx2.h"
 #include "debug.h"
@@ -222,7 +224,9 @@ GwBitVector *bits2vector(GwBits *b)
 
     for (i = 0; i < b->nnbits; i++) {
         n = b->nodes[i];
-        h[i] = &(n->head);
+        GwNodeHistory *history = gw_node_get_history_snapshot(n);
+        h[i] = history ? &history->head : NULL;
+        if(history) gw_node_history_unref(history);
     }
 
     while (h[0]) /* should never exit through this point the way we set up histents with trailers
@@ -1419,6 +1423,7 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
     char *nam;
     int offset, len, width;
     GwExpandReferences *exp1;
+    GwNodeHistory *history;
 
     int row_hi = 0, row_lo = 0, new_msi = 0, new_lsi = 0;
     int row_delta = 0, bit_delta = 0;
@@ -1428,11 +1433,18 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
     if (n->mv.mvlfac)
         import_trace(n);
 
+    history = gw_node_get_history_snapshot(n);
+    if (!history) {
+        return (NULL);
+    }
+
     if (!n->extvals) {
         DEBUG(fprintf(stderr, "Nothing to expand\n"));
+        gw_node_history_unref(history);
         return (NULL);
     } else {
         char *namex;
+        GwNodeHistory *np_history;
 
         if (n->lsi > n->msi) {
             width = n->lsi - n->msi + 1;
@@ -1448,6 +1460,7 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
 
         if ((actual > rgh) || (actual < lft)) {
             DEBUG(fprintf(stderr, "Out of range\n"));
+            gw_node_history_unref(history);
             return (NULL);
         }
 
@@ -1498,40 +1511,18 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
         nam = (char *)g_alloca(offset + 20);
         memcpy(nam, namex, offset);
 
-        if (!n->harray) /* make quick array lookup for aet display--normally this is done in addnode
-                         */
-        {
-            GwHistEnt *histpnt;
-            int histcount;
-            GwHistEnt **harray;
-
-            histpnt = &(n->head);
-            histcount = 0;
-
-            while (histpnt) {
-                histcount++;
-                histpnt = histpnt->next;
-            }
-
-            n->numhist = histcount;
-
-            if (!(n->harray = harray = malloc_2(histcount * sizeof(GwHistEnt *)))) {
-                DEBUG(fprintf(stderr, "Out of memory, can't add to analyzer\n"));
-                return (NULL);
-            }
-
-            histpnt = &(n->head);
-            for (i = 0; i < histcount; i++) {
-                *harray = histpnt;
-                harray++;
-                histpnt = histpnt->next;
-            }
+        if (!history->harray) {
+            DEBUG(fprintf(stderr, "harray not available for node %s\n", n->nname));
+            gw_node_history_unref(history);
+            return (NULL);
         }
 
-        h = &(n->head);
+        h = &(history->head);
         while (h) {
-            if (h->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING))
+            if (h->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
+                gw_node_history_unref(history);
                 return (NULL);
+            }
             h = h->next;
         }
 
@@ -1540,9 +1531,11 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
                       n->msi,
                       n->lsi,
                       bit,
-                      n->numhist));
+                      history->numhist));
 
         np = calloc_2(1, sizeof(GwNode));
+        np_history = gw_node_history_new();
+        g_atomic_pointer_set(&np->active_history, np_history);
 
         if (!is_2d) {
             sprintf(nam + offset, "[%d]", actual);
@@ -1571,22 +1564,22 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
 
         GwTimeRange *time_range = gw_dump_file_get_time_range(GLOBALS->dump_file);
 
-        for (i = 0; i < n->numhist; i++) {
-            h = n->harray[i];
+        for (i = 0; i < history->numhist; i++) {
+            h = history->harray[i];
             if (!gw_time_range_contains(time_range, h->time)) {
-                if (np->curr) {
+                if (np_history->curr) {
                     htemp = calloc_2(1, sizeof(GwHistEnt));
                     htemp->v.h_val = GW_BIT_X; /* 'x' */
                     htemp->time = h->time;
-                    np->curr->next = htemp;
-                    np->curr = htemp;
+                    np_history->curr->next = htemp;
+                    np_history->curr = htemp;
                 } else {
-                    np->head.v.h_val = GW_BIT_X; /* 'x' */
-                    np->head.time = h->time;
-                    np->curr = &(np->head);
+                    np_history->head.v.h_val = GW_BIT_X; /* 'x' */
+                    np_history->head.time = h->time;
+                    np_history->curr = &(np_history->head);
                 }
 
-                np->numhist++;
+                np_history->numhist++;
             } else {
                 unsigned char val = h->v.h_vector[bit];
                 switch (val) {
@@ -1627,26 +1620,22 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
                         break; /* leave val alone as it's been converted already.. */
                 }
 
-                if (np->curr->v.h_val !=
+                if (np_history->curr->v.h_val !=
                     val) /* curr will have been established already by 'x' at time: -1 */
                 {
                     htemp = calloc_2(1, sizeof(GwHistEnt));
                     htemp->v.h_val = val;
                     htemp->time = h->time;
-                    np->curr->next = htemp;
-                    np->curr = htemp;
-                    np->numhist++;
+                    np_history->curr->next = htemp;
+                    np_history->curr = htemp;
+                    np_history->numhist++;
                 }
             }
         }
 
-        np->harray = calloc_2(np->numhist, sizeof(GwHistEnt *));
-        htemp = &(np->head);
-        for (j = 0; j < np->numhist; j++) {
-            np->harray[j] = htemp;
-            htemp = htemp->next;
-        }
+        gw_node_history_regenerate_harray(np_history);
 
+        gw_node_history_unref(history);
         return (np);
     }
 }
@@ -1658,15 +1647,13 @@ GwNode *ExtractNodeSingleBit(GwNode *n, int bit)
  */
 void DeleteNode(GwNode *n)
 {
-    int i;
-
     if (n->expansion) {
         if (n->expansion->refcnt == 0) {
-            for (i = 1; i < n->numhist; i++) /* 1st is actually part of the Node! */
-            {
-                free_2(n->harray[i]);
+            GwNodeHistory *history = g_atomic_pointer_get(&n->active_history);
+            if (history) {
+                gw_node_history_unref(history);
             }
-            free_2(n->harray);
+
             free_2(n->expansion);
             free_2(n->nname);
             free_2(n);

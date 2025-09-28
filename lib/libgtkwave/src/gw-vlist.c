@@ -200,3 +200,31 @@ void gw_vlist_freeze(GwVlist **v, gint compression_level)
         *v = w;
     }
 }
+
+GwVlist *gw_vlist_copy(const GwVlist *src)
+{
+	if (!src) {
+		return NULL;
+	}
+
+	gsize block_size = sizeof(GwVlist) + (src->size * src->element_size);
+	GwVlist *new_head = g_malloc(block_size);
+	memcpy(new_head, src, block_size);
+
+	GwVlist *curr_new = new_head;
+	const GwVlist *curr_src = src->next;
+
+	while (curr_src) {
+		block_size = sizeof(GwVlist) + (curr_src->size * curr_src->element_size);
+		GwVlist *new_block = g_malloc(block_size);
+		memcpy(new_block, curr_src, block_size);
+
+		curr_new->next = new_block;
+		curr_new = new_block;
+		curr_src = curr_src->next;
+	}
+
+	curr_new->next = NULL;
+
+	return new_head;
+}

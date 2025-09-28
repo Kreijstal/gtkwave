@@ -28,6 +28,7 @@
 #include "menu.h"
 #include "tcl_helper.h"
 #include "signal_list.h"
+#include "gw-node-history.h"
 
 #if !defined __MINGW32__
 #include <sys/types.h>
@@ -1454,8 +1455,9 @@ static char *give_value_string(GwTrace *t)
                     bsearch_vector(t->n.vec, gw_marker_get_position(primary_marker) - t->shift);
                 rc = convert_ascii(t, v);
             } else {
-                GwHistEnt *h_ptr =
-                    bsearch_node(t->n.nd, gw_marker_get_position(primary_marker) - t->shift);
+                GwHistEnt *h_ptr = NULL;
+                GwNodeHistory *history =
+                    bsearch_node(t->n.nd, gw_marker_get_position(primary_marker) - t->shift, &h_ptr);
                 if (h_ptr) {
                     if (!t->n.nd->extvals) {
                         rc = (char *)calloc_2(2, 2 * sizeof(char));
@@ -1471,6 +1473,9 @@ static char *give_value_string(GwTrace *t)
                             rc = convert_ascii_vec(t, h_ptr->v.h_vector);
                         }
                     }
+                }
+                if (history) {
+                    gw_node_history_unref(history);
                 }
             }
         }

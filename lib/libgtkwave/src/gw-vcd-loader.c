@@ -4,6 +4,8 @@
 #include "gw-util.h"
 #include "gw-hash.h"
 #include "vcd-keywords.h"
+#include "gw-node.h"
+#include "gw-node-history.h"
 #include <stdio.h>
 #include <fstapi.h>
 #include <errno.h>
@@ -34,6 +36,8 @@ struct vcdsymbol
     unsigned int nid;
     int msi, lsi;
     int size;
+
+    unsigned int last_time_vlist_count;
 
     unsigned char vartype;
 };
@@ -952,9 +956,7 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
             unsigned int time_delta;
             unsigned int rcv;
 
-            if (n->mv.mvlfac_vlist_writer ==
-                NULL) /* overloaded for vlist, numhist = last position used */
-            {
+            if (n->mv.mvlfac_vlist_writer == NULL) {
                 n->mv.mvlfac_vlist_writer =
                     gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
                 gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
@@ -963,8 +965,8 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
                 gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
             }
 
-            time_delta = self->time_vlist_count - (unsigned int)n->numhist;
-            n->numhist = self->time_vlist_count;
+            time_delta = self->time_vlist_count - v->last_time_vlist_count;
+            v->last_time_vlist_count = self->time_vlist_count;
 
             switch (self->yytext[0]) {
                 case '0':
@@ -1025,8 +1027,7 @@ static void process_binary(GwVcdLoader *self, gchar typ, const gchar *vector, gi
     GwNode *n = v->narray[0];
     unsigned int time_delta;
 
-    if (n->mv.mvlfac_vlist_writer == NULL) /* overloaded for vlist, numhist = last position used */
-    {
+    if (n->mv.mvlfac_vlist_writer == NULL) {
         unsigned char typ2 = toupper(typ);
         n->mv.mvlfac_vlist_writer =
             gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
@@ -1048,8 +1049,8 @@ static void process_binary(GwVcdLoader *self, gchar typ, const gchar *vector, gi
         gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->size);
     }
 
-    time_delta = self->time_vlist_count - (unsigned int)n->numhist;
-    n->numhist = self->time_vlist_count;
+    time_delta = self->time_vlist_count - v->last_time_vlist_count;
+    v->last_time_vlist_count = self->time_vlist_count;
 
     gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, time_delta);
 
@@ -1694,8 +1695,11 @@ static void vcd_parse_var(GwVcdLoader *self)
     /* initial conditions */
     v->narray = g_new0(GwNode *, 1);
     v->narray[0] = g_new0(GwNode, 1);
-    v->narray[0]->head.time = -2;
-    v->narray[0]->head.v.h_val = GW_BIT_X;
+
+    GwNodeHistory *history = gw_node_history_new();
+    history->head.time = -2;
+    history->head.v.h_val = GW_BIT_X;
+    gw_node_publish_new_history(v->narray[0], history);
 
     if (self->vcdsymroot == NULL) {
         self->vcdsymroot = self->vcdsymcurr = v;
@@ -2012,17 +2016,17 @@ static void vcd_build_symbols(GwVcdLoader *self)
                         // #endif
                         s->n = v->narray[j];
                         if (substnode) {
-                            GwNode *n;
-                            GwNode *n2;
+                            // GwNode *n;
+                            // GwNode *n2;
 
-                            n = s->n;
-                            n2 = vprime->narray[j];
+                            // n = s->n;
+                            // n2 = vprime->narray[j];
                             /* nname stays same */
                             /* n->head=n2->head; */
                             /* n->curr=n2->curr; */
-                            n->curr = (GwHistEnt *)n2;
+                            // n->curr = (GwHistEnt *)n2;
                             /* harray calculated later */
-                            n->numhist = n2->numhist;
+                            // n->numhist = n2->numhist;
                         }
 
                         // #ifndef _WAVE_HAVE_JUDY
@@ -2099,20 +2103,20 @@ static void vcd_build_symbols(GwVcdLoader *self)
                     // #endif
                     s->n = v->narray[0];
                     if (substnode) {
-                        GwNode *n;
-                        GwNode *n2;
+                        // GwNode *n;
+                        // GwNode *n2;
 
-                        n = s->n;
-                        n2 = vprime->narray[0];
+                        // n = s->n;
+                        // n2 = vprime->narray[0];
                         /* nname stays same */
                         /* n->head=n2->head; */
                         /* n->curr=n2->curr; */
-                        n->curr = (GwHistEnt *)n2;
+                        // n->curr = (GwHistEnt *)n2;
                         /* harray calculated later */
-                        n->numhist = n2->numhist;
-                        n->extvals = n2->extvals;
-                        n->msi = n2->msi;
-                        n->lsi = n2->lsi;
+                        // n->numhist = n2->numhist;
+                        // n->extvals = n2->extvals;
+                        // n->msi = n2->msi;
+                        // n->lsi = n2->lsi;
                     } else {
                         s->n->msi = v->msi;
                         s->n->lsi = v->lsi;

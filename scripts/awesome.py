@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
 
-import pyatspi
+import sys
 import time
+
+# Try to import pyatspi and handle missing AT-SPI infrastructure
+try:
+    import pyatspi
+except ImportError as e:
+    print(f"ERROR: pyatspi module not available: {e}")
+    print("Please install python3-pyatspi package")
+    sys.exit(1)
 
 def find_gtkwave_app():
     """Find the GTKWave application."""
-    desktop = pyatspi.Registry.getDesktop(0)
+    try:
+        desktop = pyatspi.Registry.getDesktop(0)
+    except Exception as e:
+        print(f"ERROR: Failed to get AT-SPI desktop: {e}")
+        print("This usually means the accessibility bus is not running.")
+        print("Try running: export DISPLAY=:99 && /usr/libexec/at-spi2-registryd &")
+        return None
     for i in range(desktop.childCount):
         app = desktop.getChildAtIndex(i)
         if "gtkwave" in (getattr(app, "name", "") or "").lower():

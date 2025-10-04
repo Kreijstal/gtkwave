@@ -41,8 +41,7 @@ static void test_expand_crash_subprocess(void)
 static void test_expand_vector_with_mixed_history_from_vcd(void)
 {
     g_test_trap_subprocess("/node/expand_vector_with_mixed_history_from_vcd/subprocess", 0, 0);
-    g_test_trap_assert_failed();
-    g_test_trap_assert_stderr("*ERROR*Cannot expand vector 'mysim.sine_wave'*");
+    g_test_trap_assert_passed();
 }
 
 int main(int argc, char *argv[])

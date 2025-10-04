@@ -201,6 +201,12 @@ GwExpandInfo *gw_node_expand(GwNode *self)
                 narray[j]->numhist++;
             }
         } else {
+            // Safety check: ensure we have valid vector data
+            if (h->v.h_vector == NULL) {
+                // Skip this entry if no vector data (shouldn't happen for multi-bit signals)
+                continue;
+            }
+            
             for (gint j = 0; j < width; j++) {
                 unsigned char val = h->v.h_vector[j];
                 switch (val) {

@@ -948,60 +948,92 @@ static void parse_valuechange_scalar(GwVcdLoader *self)
                     self->yytext + 1);
             malform_eof_fix(self);
         } else {
-            GwNode *n = v->narray[0];
-            unsigned int time_delta;
-            unsigned int rcv;
+            if (v->size > 1) {
+                char *vector_str = g_alloca(v->size + 1);
+                vector_str[v->size] = '\0';
+                char value_char = self->yytext[0];
 
-            if (n->mv.mvlfac_vlist_writer ==
-                NULL) /* overloaded for vlist, numhist = last position used */
-            {
-                n->mv.mvlfac_vlist_writer =
-                    gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
-                gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
-                                            (unsigned int)'0'); /* represents single bit routine
-                                                                 for decompression */
-                gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
+                if (value_char == '1') {
+                    memset(vector_str, '0', v->size - 1);
+                    vector_str[v->size - 1] = '1';
+                } else {
+                    memset(vector_str, value_char, v->size);
+                }
+
+                GwNode *n = v->narray[0];
+                unsigned int time_delta;
+
+                if (n->mv.mvlfac_vlist_writer == NULL)
+                {
+                    n->mv.mvlfac_vlist_writer =
+                        gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
+                    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
+                                                (unsigned int)'B');
+                    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
+                    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->size);
+                }
+
+                time_delta = self->time_vlist_count - (unsigned int)n->numhist;
+                n->numhist = self->time_vlist_count;
+
+                gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, time_delta);
+                gw_vlist_writer_append_mvl9_string(n->mv.mvlfac_vlist_writer, vector_str);
+            } else {
+                GwNode *n = v->narray[0];
+                unsigned int time_delta;
+                unsigned int rcv;
+
+                if (n->mv.mvlfac_vlist_writer ==
+                    NULL) /* overloaded for vlist, numhist = last position used */
+                {
+                    n->mv.mvlfac_vlist_writer =
+                        gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
+                    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer,
+                                                (unsigned int)'0'); /* represents single bit routine
+                                                                     for decompression */
+                    gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, (unsigned int)v->vartype);
+                }
+
+                time_delta = self->time_vlist_count - (unsigned int)n->numhist;
+                n->numhist = self->time_vlist_count;
+
+                switch (self->yytext[0]) {
+                    case '0':
+                    case '1':
+                        rcv = ((self->yytext[0] & 1) << 1) | (time_delta << 2);
+                        break; /* pack more delta bits in for 0/1 vchs */
+
+                    case 'x':
+                    case 'X':
+                        rcv = RCV_X | (time_delta << 4);
+                        break;
+                    case 'z':
+                    case 'Z':
+                        rcv = RCV_Z | (time_delta << 4);
+                        break;
+                    case 'h':
+                    case 'H':
+                        rcv = RCV_H | (time_delta << 4);
+                        break;
+                    case 'u':
+                    case 'U':
+                        rcv = RCV_U | (time_delta << 4);
+                        break;
+                    case 'w':
+                    case 'W':
+                        rcv = RCV_W | (time_delta << 4);
+                        break;
+                    case 'l':
+                    case 'L':
+                        rcv = RCV_L | (time_delta << 4);
+                        break;
+                    default:
+                        rcv = RCV_D | (time_delta << 4);
+                        break;
+                }
+
+                gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, rcv);
             }
-
-            time_delta = self->time_vlist_count - (unsigned int)n->numhist;
-            n->numhist = self->time_vlist_count;
-
-            switch (self->yytext[0]) {
-                case '0':
-                case '1':
-                    rcv = ((self->yytext[0] & 1) << 1) | (time_delta << 2);
-                    break; /* pack more delta bits in for 0/1 vchs */
-
-                case 'x':
-                case 'X':
-                    rcv = RCV_X | (time_delta << 4);
-                    break;
-                case 'z':
-                case 'Z':
-                    rcv = RCV_Z | (time_delta << 4);
-                    break;
-                case 'h':
-                case 'H':
-                    rcv = RCV_H | (time_delta << 4);
-                    break;
-                case 'u':
-                case 'U':
-                    rcv = RCV_U | (time_delta << 4);
-                    break;
-                case 'w':
-                case 'W':
-                    rcv = RCV_W | (time_delta << 4);
-                    break;
-                case 'l':
-                case 'L':
-                    rcv = RCV_L | (time_delta << 4);
-                    break;
-                default:
-                    rcv = RCV_D | (time_delta << 4);
-                    break;
-            }
-
-            gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, rcv);
         }
     } else {
         fprintf(stderr,

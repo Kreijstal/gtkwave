@@ -9,11 +9,7 @@
 
 static void test_expand_crash_subprocess(void)
 {
-    const gchar *filename = g_build_filename(
-        g_getenv("MESON_SOURCE_ROOT"),
-        "lib", "libgtkwave", "test", "files", "vector_with_scalar_history.vcd",
-        NULL
-    );
+    const gchar *filename = "files/vector_with_mixed_history.vcd";
 
     g_assert_true(g_file_test(filename, G_FILE_TEST_EXISTS));
 
@@ -35,7 +31,6 @@ static void test_expand_crash_subprocess(void)
 
     g_object_unref(dump_file);
     g_object_unref(loader);
-    g_free((gpointer)filename);
 }
 
 static void test_expand_vector_with_mixed_history_from_vcd(void)

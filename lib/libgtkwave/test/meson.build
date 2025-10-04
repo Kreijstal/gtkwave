@@ -42,11 +42,16 @@ foreach test : libgtkwave_tests
         dependencies: libgtkwave_dep,
     )
 
+    test_env = []
+    if test == 'test-gw-node-expand-crash-repro'
+        test_env += 'G_DEBUG=fatal-errors'
+    endif
     test(
         test,
         test_executable,
         workdir: meson.current_source_dir(),
         protocol: 'tap',
+        env: test_env,
     )
 endforeach
 

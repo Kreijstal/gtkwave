@@ -19,9 +19,16 @@ sudo apt-get install -y \
 
 ### Python Packages
 ```bash
-# Install pyvcd (NOT the 'vcd' package which is for video)
+# Install pyvcd for the SYSTEM Python (NOT the 'vcd' package which is for video)
+# Use the system Python (/usr/bin/python3) to ensure pyatspi compatibility
+sudo /usr/bin/python3 -m pip install pyvcd python-xlib
+
+# Or if you want to install for another Python, make sure it also has pyatspi
 pip install pyvcd python-xlib
 ```
+
+**Important:** The test scripts use `/usr/bin/python3` explicitly because pyatspi 
+is only available through the system package manager (python3-pyatspi), not PyPI.
 
 ## Running Tests
 
@@ -39,10 +46,10 @@ export PATH="$(pwd)/builddir/src/helpers:$(pwd)/builddir/src:$PATH"
 
 # Run tests with proper environment
 ./scripts/setup_test_env.sh bash -c '
-    python3 scripts/awesome.py &
+    /usr/bin/python3 scripts/awesome.py &
     AWESOME_PID=$!
     sleep 2
-    python3 scripts/stream_to_gtkwave.py
+    /usr/bin/python3 scripts/stream_to_gtkwave.py
     kill $AWESOME_PID 2>/dev/null || true
 '
 ```
@@ -62,11 +69,11 @@ export DISPLAY=:99
     # Set up meson environment
     source <(meson devenv -C builddir --dump)
     
-    # Run tests
-    python3 scripts/awesome.py &
+    # Run tests (using /usr/bin/python3 for pyatspi compatibility)
+    /usr/bin/python3 scripts/awesome.py &
     AWESOME_PID=$!
     sleep 2
-    python3 scripts/stream_to_gtkwave.py
+    /usr/bin/python3 scripts/stream_to_gtkwave.py
     kill $AWESOME_PID 2>/dev/null || true
 '
 ```
@@ -120,7 +127,7 @@ export G_MESSAGES_DEBUG=all
 
 Check AT-SPI is working:
 ```bash
-./scripts/setup_test_env.sh python3 -c "
+./scripts/setup_test_env.sh /usr/bin/python3 -c "
 import pyatspi
 desktop = pyatspi.Registry.getDesktop(0)
 print(f'Desktop: {desktop}')

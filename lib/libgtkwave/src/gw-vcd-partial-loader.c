@@ -2831,6 +2831,12 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     GwVlistWriter *writer = gw_vlist_writer_new(self->vlist_compression_level, self->vlist_prepack);
     gw_vlist_writer_set_live_mode(writer, TRUE);
 
+    // Debug: log what type header we're writing
+    g_test_message("Creating vlist writer for signal '%s': size=%d, vartype=%d, writing header type=%c",
+                  v->name, v->size, v->vartype, 
+                  (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) ? '0' : 
+                  ((v->vartype == V_REAL) ? 'R' : (v->vartype == V_STRINGTYPE) ? 'S' : 'B'));
+
     // Write the vlist header
     if (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) {
         // Scalar header
@@ -3418,6 +3424,8 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 // Process header if this is the first read
                 if (last_pos == 0 && vlist->size >= 1) {
                     vlist_type = gw_vlist_reader_read_uv32(reader);
+                    g_test_message("JIT IMPORT: First read for %s, vlist_type from vlist=%c (0x%02x)", 
+                                  symbol_id, (char)vlist_type, vlist_type);
                     if (vlist_type == '0') {
                         gw_vlist_reader_read_uv32(reader); // Skip vartype
                     } else {
@@ -3432,6 +3440,8 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     // For subsequent reads, we need to know the vlist type
                     // It's stored in the upper 32 bits of the import position
                     vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
+                    g_test_message("JIT IMPORT: Subsequent read for %s, vlist_type=%c (0x%02x)", 
+                                  symbol_id, (char)vlist_type, vlist_type);
                 }
 
                 // Process value changes
@@ -3463,6 +3473,12 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
+                        
+                        // Clear the harray so it will be rebuilt with the new entries on next access
+                        if (node->harray != NULL) {
+                            g_free(node->harray);
+                            node->harray = NULL;
+                        }
                     }
                 } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
                     // Vector, Real, and String value processing - all use string format
@@ -3486,6 +3502,8 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             hent->v.h_vector = (char *)g_strdup(value_str);
                         } else {
                             // Vector value (type 'B')
+                            g_test_message("JIT IMPORT: Allocating h_vector for %s, size=%d, value_str='%s'",
+                                          symbol_id, props ? props->size : -1, value_str);
                             hent->v.h_vector = g_malloc(props->size);
                             gint val_len = strlen(value_str);
                             gint copy_len = MIN(val_len, props->size);
@@ -3501,6 +3519,8 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             for (gint i = 0; i < copy_len; i++) {
                                 hent->v.h_vector[pad_len + i] = gw_bit_from_char(value_str[i + offset]);
                             }
+                            g_test_message("JIT IMPORT: Allocated h_vector=%p for %s",
+                                          hent->v.h_vector, symbol_id);
                         }
 
                         // value_str is managed by the reader, do not free
@@ -3510,6 +3530,12 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
+                        
+                        // Clear the harray so it will be rebuilt with the new entries on next access
+                        if (node->harray != NULL) {
+                            g_free(node->harray);
+                            node->harray = NULL;
+                        }
                     }
                 } else if (vlist_type == 'R' || vlist_type == 'S') {
                     // Real/String value processing - use gw_vlist_reader_read_string()
@@ -3535,6 +3561,12 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
+                        
+                        // Clear the harray so it will be rebuilt with the new entries on next access
+                        if (node->harray != NULL) {
+                            g_free(node->harray);
+                            node->harray = NULL;
+                        }
                     }
                 } else {
                     g_test_message("JIT IMPORT: Unsupported vlist type '%c' for symbol %s", vlist_type, symbol_id);

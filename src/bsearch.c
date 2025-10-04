@@ -13,7 +13,9 @@
 #include "currenttime.h"
 #include "symbol.h"
 #include "bsearch.h"
+#include <gtkwave.h>
 #include "strace.h"
+#include "gw-node-history.h"
 #include <ctype.h>
 
 static int compar_timechain(const void *s1, const void *s2)
@@ -100,22 +102,155 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
 
-    if (bsearch(&key, n->harray, n->numhist, sizeof(GwHistEnt *), compar_histent)) {
-        /* nothing, all side effects are in bsearch */
+    // Special handling for child nodes (expanded from parent vector)
+    if (n->expansion != NULL && n->expansion->parent != NULL) {
+        GwNode *parent = n->expansion->parent;
+        int bit_index = n->expansion->parentbit;
+        
+        // Get parent's current snapshot
+        GwNodeHistory *parent_snapshot = gw_node_get_history_snapshot(parent);
+        GwHistEnt **parent_harray;
+        int parent_numhist;
+        
+        if (parent_snapshot) {
+            parent_harray = gw_node_history_get_harray(parent_snapshot);
+            parent_numhist = gw_node_history_get_numhist(parent_snapshot);
+        } else {
+            parent_harray = parent->harray;
+            parent_numhist = parent->numhist;
+        }
+        
+        // Check if parent has more history than when child was created
+        if (parent_numhist > n->numhist) {
+            // Parent has been updated - rebuild child history from parent
+            if (n->nname) {
+                fprintf(stderr, "BSEARCH: Rebuilding child %s history from parent (%d -> %d entries)\n",
+                        n->nname, n->numhist, parent_numhist);
+            }
+            
+            // Free old harray if exists
+            if (n->harray) {
+                g_free(n->harray);
+                n->harray = NULL;
+            }
+            
+            // Walk parent history and extract bits for this child
+            // Build new history entries for changed values
+            GwHistEnt *prev_child = NULL;
+            int child_count = 0;
+            
+            for (int i = 0; i < parent_numhist; i++) {
+                GwHistEnt *parent_hist = parent_harray[i];
+                if (!parent_hist || !parent_hist->v.h_vector) {
+                    continue;
+                }
+                
+                // Extract the bit for this child
+                char parent_vec_char = parent_hist->v.h_vector[bit_index];
+                GwBit val = gw_bit_from_char(parent_vec_char);
+                
+                // Check if value changed from previous
+                if (prev_child == NULL || prev_child->v.h_val != val) {
+                    GwHistEnt *new_hist = g_new0(GwHistEnt, 1);
+                    new_hist->time = parent_hist->time;
+                    new_hist->v.h_val = val;
+                    new_hist->flags = parent_hist->flags;
+                    new_hist->next = NULL;
+                    
+                    if (prev_child) {
+                        prev_child->next = new_hist;
+                    } else {
+                        // First entry - update head
+                        if (n->head.next) {
+                            // Clear old linked list
+                            GwHistEnt *temp = n->head.next;
+                            while (temp) {
+                                GwHistEnt *next = temp->next;
+                                g_free(temp);
+                                temp = next;
+                            }
+                        }
+                        n->head = *new_hist;
+                        g_free(new_hist);
+                        new_hist = &n->head;
+                    }
+                    
+                    prev_child = new_hist;
+                    child_count++;
+                }
+            }
+            
+            // Update child's curr pointer
+            n->curr = prev_child;
+            n->numhist = child_count;
+            
+            // Rebuild harray
+            n->harray = g_new0(GwHistEnt *, child_count);
+            GwHistEnt *temp = &n->head;
+            for (int i = 0; i < child_count; i++) {
+                n->harray[i] = temp;
+                temp = temp->next;
+            }
+        }
+        
+        if (parent_snapshot) {
+            gw_node_history_unref(parent_snapshot);
+        }
+        
+        // Now proceed with normal bsearch using updated child history
+    }
+
+    // Try to use thread-safe snapshot if available
+    GwNodeHistory *history = gw_node_get_history_snapshot(n);
+    
+    GwHistEnt **harray;
+    int numhist;
+    
+    if (history != NULL) {
+        // Use snapshot (thread-safe)
+        harray = gw_node_history_get_harray(history);
+        numhist = gw_node_history_get_numhist(history);
+        if (n->nname) {
+            fprintf(stderr, "BSEARCH: Using snapshot for node %s, numhist=%d, key=%" GW_TIME_FORMAT "\n",
+                    n->nname, numhist, key);
+        }
+    } else {
+        // Fall back to direct access (legacy behavior, not thread-safe)
+        harray = n->harray;
+        numhist = n->numhist;
+        if (n->nname) {
+            fprintf(stderr, "BSEARCH: Using direct access for node %s, numhist=%d, key=%" GW_TIME_FORMAT "\n",
+                    n->nname, numhist, key);
+        }
+    }
+    
+    // Perform bsearch only if we have data
+    if (harray != NULL && numhist > 0) {
+        if (bsearch(&key, harray, numhist, sizeof(GwHistEnt *), compar_histent)) {
+            /* nothing, all side effects are in bsearch */
+        }
     }
 
     if ((!GLOBALS->max_compare_pos_bsearch_c_1) ||
         (GLOBALS->max_compare_time_bsearch_c_1 < GW_TIME_CONSTANT(0))) {
-        GLOBALS->max_compare_pos_bsearch_c_1 = n->harray[1]; /* aix bsearch fix */
-        GLOBALS->max_compare_index = &(n->harray[1]);
+        if (harray != NULL && numhist > 1) {
+            GLOBALS->max_compare_pos_bsearch_c_1 = harray[1]; /* aix bsearch fix */
+            GLOBALS->max_compare_index = &(harray[1]);
+        }
     }
 
-    while (GLOBALS->max_compare_pos_bsearch_c_1->next) /* non-RoSync dumper deglitching fix */
+    while (GLOBALS->max_compare_pos_bsearch_c_1 &&
+           GLOBALS->max_compare_pos_bsearch_c_1->next) /* non-RoSync dumper deglitching fix */
     {
         if (GLOBALS->max_compare_pos_bsearch_c_1->time !=
             GLOBALS->max_compare_pos_bsearch_c_1->next->time)
             break;
         GLOBALS->max_compare_pos_bsearch_c_1 = GLOBALS->max_compare_pos_bsearch_c_1->next;
+    }
+
+    // Release the snapshot if we acquired one
+    if (history != NULL) {
+        gw_node_history_unref(history);
     }
 
     return (GLOBALS->max_compare_pos_bsearch_c_1);

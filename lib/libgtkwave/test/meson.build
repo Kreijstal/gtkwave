@@ -11,6 +11,9 @@ libgtkwave_tests = [
     'test-gw-marker',
     'test-gw-named-markers',
     'test-gw-node',
+    'test-gw-node-expand',
+    'test-gw-node-expand-crash',
+    'test-gw-node-history',
     'test-gw-project',
     'test-gw-stems',
     'test-gw-string-table',
@@ -21,6 +24,7 @@ libgtkwave_tests = [
     'test-gw-vcd-loader',
     'test-gw-vcd-partial-loader-equivalence',
     'test-gw-vcd-partial-loader-stream',
+    'test-gw-vcd-snapshot-update',
     'test-gw-vlist-live-reader',
     'test-gw-vlist-packer',
     'test-gw-vlist-writer',
@@ -32,11 +36,36 @@ foreach test : libgtkwave_tests
     if test == 'test-gw-vcd-partial-loader-equivalence'
         test_sources += 'test-helpers.c'
     endif
+    
+    # Special handling for test-gw-node-expand-crash which needs bsearch.c
+    test_deps = libgtkwave_dep
+    test_include_dirs = []
+    test_c_args = []
+    
+    if test == 'test-gw-node-expand-crash'
+        # Add bsearch.c and required dependencies from src/
+        test_sources += [
+            '../../src/bsearch.c',
+            '../../src/globals.c',
+            '../../src/analyzer.c',
+            '../../src/currenttime.c',
+            '../../src/symbol.c',
+            '../../src/strace.c',
+        ]
+        test_include_dirs = [
+            include_directories('../../src'),
+            include_directories('../../../'),  # For config.h
+        ]
+        test_c_args = ['-DHAVE_CONFIG_H']
+        test_deps = [libgtkwave_dep, glib_dep, gtk_dep, m_dep]
+    endif
 
     test_executable = executable(
         test,
         test_sources,
-        dependencies: libgtkwave_dep,
+        dependencies: test_deps,
+        include_directories: test_include_dirs,
+        c_args: test_c_args,
     )
 
     test(

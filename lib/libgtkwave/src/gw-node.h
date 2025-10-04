@@ -4,6 +4,7 @@
 #include "gw-hist-ent.h"
 #include "gw-vlist-writer.h"
 #include "gw-vlist-reader.h"
+#include "gw-node-history.h"
 
 /* struct Node bitfield widths */
 #define WAVE_VARXT_WIDTH (16)
@@ -61,6 +62,10 @@ struct _GwNode
     GwTime last_time; /* time of last transition for delta calculation */
     GwTime last_time_raw; /* raw time value (without global offset) for delta calculation */
 
+    // Thread-safe snapshot support
+    gpointer active_history; /* Atomic pointer to GwNodeHistory snapshot. When non-NULL, this takes
+                                precedence over direct field access */
+
     unsigned varxt : WAVE_VARXT_WIDTH; /* reference inside subvar_pnt[] */
     unsigned vardt : WAVE_VARDT_WIDTH; /* see nodeVarDataType, this is an internal value */
     unsigned vardir : WAVE_VARDIR_WIDTH; /* see nodeVarDir, this is an internal value (currently
@@ -75,3 +80,40 @@ struct _GwNode
 #endif
 
 GwExpandInfo *gw_node_expand(GwNode *self);
+
+/**
+ * gw_node_create_history_snapshot:
+ * @node: A GwNode
+ *
+ * Creates a new GwNodeHistory snapshot from the node's current state.
+ * The snapshot shares the node's history entries (doesn't deep copy them).
+ * The snapshot gets a freshly generated harray that is consistent with the
+ * current linked list.
+ *
+ * Returns: (transfer full): A new GwNodeHistory snapshot with refcount=1
+ */
+GwNodeHistory *gw_node_create_history_snapshot(GwNode *node);
+
+/**
+ * gw_node_get_history_snapshot:
+ * @node: A GwNode
+ *
+ * Atomically acquires a reference to the node's history snapshot.
+ * If no snapshot exists, returns NULL.
+ * The caller MUST call gw_node_history_unref() when done.
+ *
+ * Returns: (transfer full) (nullable): A GwNodeHistory snapshot with incremented refcount
+ */
+GwNodeHistory *gw_node_get_history_snapshot(GwNode *node);
+
+/**
+ * gw_node_publish_new_history:
+ * @node: A GwNode
+ * @new_history: (transfer none): The new history snapshot to publish
+ *
+ * Atomically publishes a new history snapshot and returns the previous one.
+ * The caller is responsible for unreffing the returned snapshot.
+ *
+ * Returns: (transfer full) (nullable): The previous history snapshot (if any)
+ */
+GwNodeHistory *gw_node_publish_new_history(GwNode *node, GwNodeHistory *new_history);

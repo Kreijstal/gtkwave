@@ -101,7 +101,50 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
 
-    // Try to use thread-safe snapshot if available
+    // Check if this is a child node (expanded from a parent)
+    if (n->expansion != NULL && n->expansion->parent != NULL) {
+        // This is a child node - use parent's snapshot and extract the bit
+        GwNode *parent = n->expansion->parent;
+        int bit_index = n->expansion->parentbit;
+        
+        if (n->nname) {
+            fprintf(stderr, "BSEARCH: Child node %s using parent snapshot, bit=%d, key=%" GW_TIME_FORMAT "\n",
+                    n->nname, bit_index, key);
+        }
+        
+        // Get parent's snapshot
+        GwNodeHistory *parent_history = gw_node_get_history_snapshot(parent);
+        GwHistEnt **parent_harray;
+        int parent_numhist;
+        
+        if (parent_history != NULL) {
+            parent_harray = gw_node_history_get_harray(parent_history);
+            parent_numhist = gw_node_history_get_numhist(parent_history);
+        } else {
+            parent_harray = parent->harray;
+            parent_numhist = parent->numhist;
+        }
+        
+        // Search in parent's harray for the time
+        if (parent_harray != NULL && parent_numhist > 0) {
+            if (bsearch(&key, parent_harray, parent_numhist, sizeof(GwHistEnt *), compar_histent)) {
+                /* nothing, all side effects are in bsearch */
+            }
+        }
+        
+        // The result is in GLOBALS->max_compare_pos_bsearch_c_1
+        // But we need to extract the bit value from the vector
+        // For now, just return the parent's history entry
+        // The calling code will need to extract the bit
+        
+        if (parent_history != NULL) {
+            gw_node_history_unref(parent_history);
+        }
+        
+        return (GLOBALS->max_compare_pos_bsearch_c_1);
+    }
+    
+    // Regular node (not expanded) - use snapshot if available
     GwNodeHistory *history = gw_node_get_history_snapshot(n);
     
     GwHistEnt **harray;

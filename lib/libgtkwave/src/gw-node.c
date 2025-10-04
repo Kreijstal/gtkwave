@@ -260,13 +260,15 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         }
     }
 
+    // Child nodes should NOT have static harrays - they should dynamically
+    // derive their values from the parent's snapshot when accessed
+    // This ensures they always see the latest data
+    // The harray for child nodes will be NULL, signaling to use the parent
     for (i = 0; i < width; i++) {
-        narray[i]->harray = g_new0(GwHistEnt *, narray[i]->numhist);
-        GwHistEnt *htemp = &(narray[i]->head);
-        for (gint j = 0; j < narray[i]->numhist; j++) {
-            narray[i]->harray[j] = htemp;
-            htemp = htemp->next;
-        }
+        // Don't create harray for child nodes - leave NULL
+        // bsearch will detect this and use parent snapshot
+        narray[i]->harray = NULL;
+        narray[i]->numhist = 0;
     }
 
     // Release the snapshot if we acquired one

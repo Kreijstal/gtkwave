@@ -22,6 +22,7 @@ libgtkwave_tests = [
     'test-gw-vcd-loader',
     'test-gw-vcd-partial-loader-equivalence',
     'test-gw-vcd-partial-loader-stream',
+    'test-gw-vcd-snapshot-update',
     'test-gw-vlist-live-reader',
     'test-gw-vlist-packer',
     'test-gw-vlist-writer',

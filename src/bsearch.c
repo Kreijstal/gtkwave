@@ -111,10 +111,18 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
         // Use snapshot (thread-safe)
         harray = gw_node_history_get_harray(history);
         numhist = gw_node_history_get_numhist(history);
+        if (n->nname) {
+            fprintf(stderr, "BSEARCH: Using snapshot for node %s, numhist=%d, key=%" GW_TIME_FORMAT "\n",
+                    n->nname, numhist, key);
+        }
     } else {
         // Fall back to direct access (legacy behavior, not thread-safe)
         harray = n->harray;
         numhist = n->numhist;
+        if (n->nname) {
+            fprintf(stderr, "BSEARCH: Using direct access for node %s, numhist=%d, key=%" GW_TIME_FORMAT "\n",
+                    n->nname, numhist, key);
+        }
     }
     
     // Perform bsearch only if we have data

@@ -11,6 +11,7 @@ libgtkwave_tests = [
     'test-gw-marker',
     'test-gw-named-markers',
     'test-gw-node',
+    'test-gw-node-expansion-crash',
     'test-gw-project',
     'test-gw-stems',
     'test-gw-string-table',

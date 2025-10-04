@@ -124,6 +124,31 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         h = h->next;
     }
 
+    // Check if this node has valid vector history entries
+    // If the node is marked as having extended values (extvals=1) with width > 1,
+    // but the history entries use scalar storage (h_val) instead of vector storage (h_vector),
+    // we cannot expand it. This can happen with:
+    // 1. Nodes that were created from streaming data with scalar integer encoding
+    // 2. Already-expanded child nodes being re-expanded
+    // We detect this by checking if non-special-time history entries have valid h_vector pointers.
+    if (width > 1 && self->numhist > 0) {
+        for (i = 0; i < self->numhist; i++) {
+            h = self->harray[i];
+            // Skip special time markers (t=-2, t=-1, and t>=max which use h_val)
+            if (h->time >= 0 && h->time < GW_TIME_MAX - 1) {
+                // For vector nodes, h_vector should be a valid pointer, not a small integer
+                // If h_vector appears to be a small integer value (likely h_val being misinterpreted),
+                // then this node's history uses scalar storage and cannot be expanded as a vector
+                if (h->v.h_vector == NULL || (guintptr)(h->v.h_vector) < 256) {
+                    // History is in scalar format, cannot expand
+                    return NULL;
+                }
+                // Found at least one valid vector entry, assume the rest are valid too
+                break;
+            }
+        }
+    }
+
     // DEBUG(fprintf(stderr,
     //               "Expanding: (%d to %d) for %d bits over %d entries.\n",
     //               msb,

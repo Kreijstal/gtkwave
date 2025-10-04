@@ -94,32 +94,56 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     gchar *nam = (char *)g_alloca(offset + 20 + 30);
     memcpy(nam, namex, offset);
 
-    // make quick array lookup for aet display--normally this is done in addnode
-    if (self->harray == NULL) {
-        GwHistEnt *histpnt = &(self->head);
-        int histcount = 0;
+    // Try to use snapshot if available, otherwise use direct access
+    GwNodeHistory *history = gw_node_get_history_snapshot(self);
+    GwHistEnt **harray;
+    int numhist;
+    
+    if (history != NULL) {
+        // Use snapshot (thread-safe)
+        harray = gw_node_history_get_harray(history);
+        numhist = gw_node_history_get_numhist(history);
+    } else {
+        // Fall back to direct access and ensure harray is generated
+        if (self->harray == NULL) {
+            GwHistEnt *histpnt = &(self->head);
+            int histcount = 0;
 
-        while (histpnt) {
-            histcount++;
-            histpnt = histpnt->next;
+            while (histpnt) {
+                histcount++;
+                histpnt = histpnt->next;
+            }
+
+            self->numhist = histcount;
+
+            GwHistEnt **harray_temp = g_new(GwHistEnt *, histcount);
+            self->harray = harray_temp;
+
+            histpnt = &(self->head);
+            for (i = 0; i < histcount; i++) {
+                *harray_temp = histpnt;
+                harray_temp++;
+                histpnt = histpnt->next;
+            }
         }
+        harray = self->harray;
+        numhist = self->numhist;
+    }
 
-        self->numhist = histcount;
-
-        GwHistEnt **harray = g_new(GwHistEnt *, histcount);
-        self->harray = harray;
-
-        histpnt = &(self->head);
-        for (i = 0; i < histcount; i++) {
-            *harray = histpnt;
-            harray++;
-            histpnt = histpnt->next;
+    // Check if harray is valid
+    if (harray == NULL || numhist == 0) {
+        if (history != NULL) {
+            gw_node_history_unref(history);
         }
+        return NULL;
     }
 
     GwHistEnt *h = &(self->head);
     while (h) {
         if (h->flags & (GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING)) {
+            if (history != NULL) {
+                gw_node_history_unref(history);
+            }
             return NULL;
         }
         h = h->next;
@@ -130,7 +154,7 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     //               msb,
     //               lsb,
     //               width,
-    //               n->numhist));
+    //               numhist));
 
     for (i = 0; i < width; i++) {
         narray[i] = g_new0(GwNode, 1);
@@ -158,8 +182,8 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         narray[i]->expansion = exp1; /* can be safely deleted if expansion set like here */
     }
 
-    for (i = 0; i < self->numhist; i++) {
-        h = self->harray[i];
+    for (i = 0; i < numhist; i++) {
+        h = harray[i];
         if (h->time < 0 || h->time >= GW_TIME_MAX - 1) {
             for (gint j = 0; j < width; j++) {
                 if (narray[j]->curr) {
@@ -237,6 +261,11 @@ GwExpandInfo *gw_node_expand(GwNode *self)
             narray[i]->harray[j] = htemp;
             htemp = htemp->next;
         }
+    }
+
+    // Release the snapshot if we acquired one
+    if (history != NULL) {
+        gw_node_history_unref(history);
     }
 
     return rc;

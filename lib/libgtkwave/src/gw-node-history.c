@@ -39,26 +39,12 @@ void gw_node_history_unref(GwNodeHistory *self)
     }
 
     if (g_atomic_int_dec_and_test(&self->ref_count)) {
-        // Free all history entries in the linked list (except head which is inline)
-        GwHistEnt *curr = self->head.next;
-        while (curr != NULL) {
-            GwHistEnt *next = curr->next;
-            
-            // Free vector/string data if present
-            // Only free h_vector for strings. For non-string vectors, we would need
-            // to know if it's really a vector vs a scalar value. Since this is a 
-            // union, we can't reliably distinguish without additional metadata.
-            // The caller must manage vector memory appropriately.
-            if (curr->flags & GW_HIST_ENT_FLAG_STRING) {
-                g_free(curr->v.h_vector);
-            }
-            
-            g_free(curr);
-            curr = next;
-        }
-
-        // Free harray
+        // Free harray (this is allocated per snapshot)
         g_free(self->harray);
+
+        // NOTE: We do NOT free the history entries themselves (head.next chain).
+        // Those are owned by the GwNode and shared across snapshots.
+        // They will be freed when the GwNode is destroyed.
 
         // Free the structure itself
         g_free(self);

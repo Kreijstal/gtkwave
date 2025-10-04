@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "gw-node.h"
+#include "gw-node-history.h"
 #include "gw-bit.h"
 
 void gw_expand_info_free(GwExpandInfo *self) {
@@ -239,4 +240,31 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     }
 
     return rc;
+}
+
+GwNodeHistory *gw_node_get_history_snapshot(GwNode *node)
+{
+    g_return_val_if_fail(node != NULL, NULL);
+    
+    // Atomically get the active history pointer
+    GwNodeHistory *history = g_atomic_pointer_get(&node->active_history);
+    
+    if (history != NULL) {
+        // Increment reference count before returning
+        gw_node_history_ref(history);
+    }
+    
+    return history;
+}
+
+GwNodeHistory *gw_node_publish_new_history(GwNode *node, GwNodeHistory *new_history)
+{
+    g_return_val_if_fail(node != NULL, NULL);
+    g_return_val_if_fail(new_history != NULL, NULL);
+    
+    // Atomically swap the active history pointer and return the old one
+    GwNodeHistory *old_history = g_atomic_pointer_exchange(&node->active_history, new_history);
+    
+    // The caller is responsible for unreffing old_history
+    return old_history;
 }

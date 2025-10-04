@@ -1601,8 +1601,6 @@ void menu_toggle_group(gpointer null_data, guint callback_action, GtkWidget *wid
     }
 
     if (dirty_group) {
-        ClearTraces();
-        t->flags |= TR_HIGHLIGHT;
         if (IsClosed(t)) {
             menu_open_group(widget, null_data);
         } else {

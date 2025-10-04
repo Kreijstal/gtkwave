@@ -130,6 +130,7 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     // we cannot expand it. This can happen with:
     // 1. Nodes that were created from streaming data with scalar integer encoding
     // 2. Already-expanded child nodes being re-expanded
+    // 3. Nodes using vlist storage instead of traditional h_vector storage
     // We detect this by checking if non-special-time history entries have valid h_vector pointers.
     if (width > 1 && self->numhist > 0) {
         for (i = 0; i < self->numhist; i++) {
@@ -140,10 +141,13 @@ GwExpandInfo *gw_node_expand(GwNode *self)
                 // If h_vector appears to be a small integer value (likely h_val being misinterpreted),
                 // then this node's history uses scalar storage and cannot be expanded as a vector
                 if (h->v.h_vector == NULL || (guintptr)(h->v.h_vector) < 256) {
-                    g_error(
-                        "Cannot expand vector '%s': found scalar history data instead of vector data. This can happen with corrupted or improperly streamed VCD files.",
+                    // Node uses vlist or scalar storage - cannot expand
+                    // Return NULL instead of aborting with g_error()
+                    g_warning(
+                        "Cannot expand vector '%s': found scalar history data instead of vector data. "
+                        "This can happen with corrupted or improperly streamed VCD files, or with vlist-based streaming data.",
                         self->nname);
-                    return NULL; /* Should not be reached */
+                    return NULL;
                 }
                 // Found at least one valid vector entry, check the rest of the entries too
             }

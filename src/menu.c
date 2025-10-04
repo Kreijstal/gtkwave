@@ -1459,8 +1459,10 @@ static unsigned expand_trace(GwTrace *t_top)
             GwExpandInfo *e = gw_node_expand(node);
             int i;
             if (!e) {
-                /* 		      if(t->n.nd->expansion) t->n.nd->expansion->refcnt++; */
-                /* 		      AddNode(t->n.nd,NULL); */
+                /* Expansion failed, add the original node instead */
+                if(t->n.nd->expansion) t->n.nd->expansion->refcnt++;
+                GLOBALS->which_t_color = color;
+                AddNode(t->n.nd,NULL);
             } else {
                 for (i = 0; i < e->width; i++) {
                     GLOBALS->which_t_color = color;

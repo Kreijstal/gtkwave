@@ -14,6 +14,7 @@
 #include "symbol.h"
 #include "bsearch.h"
 #include "strace.h"
+#include "gw-node-history.h"
 #include <ctype.h>
 
 static int compar_timechain(const void *s1, const void *s2)
@@ -100,22 +101,49 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
 
-    if (bsearch(&key, n->harray, n->numhist, sizeof(GwHistEnt *), compar_histent)) {
-        /* nothing, all side effects are in bsearch */
+    // Try to use thread-safe snapshot if available
+    GwNodeHistory *history = gw_node_get_history_snapshot(n);
+    
+    GwHistEnt **harray;
+    int numhist;
+    
+    if (history != NULL) {
+        // Use snapshot (thread-safe)
+        harray = gw_node_history_get_harray(history);
+        numhist = gw_node_history_get_numhist(history);
+    } else {
+        // Fall back to direct access (legacy behavior, not thread-safe)
+        harray = n->harray;
+        numhist = n->numhist;
+    }
+    
+    // Perform bsearch only if we have data
+    if (harray != NULL && numhist > 0) {
+        if (bsearch(&key, harray, numhist, sizeof(GwHistEnt *), compar_histent)) {
+            /* nothing, all side effects are in bsearch */
+        }
     }
 
     if ((!GLOBALS->max_compare_pos_bsearch_c_1) ||
         (GLOBALS->max_compare_time_bsearch_c_1 < GW_TIME_CONSTANT(0))) {
-        GLOBALS->max_compare_pos_bsearch_c_1 = n->harray[1]; /* aix bsearch fix */
-        GLOBALS->max_compare_index = &(n->harray[1]);
+        if (harray != NULL && numhist > 1) {
+            GLOBALS->max_compare_pos_bsearch_c_1 = harray[1]; /* aix bsearch fix */
+            GLOBALS->max_compare_index = &(harray[1]);
+        }
     }
 
-    while (GLOBALS->max_compare_pos_bsearch_c_1->next) /* non-RoSync dumper deglitching fix */
+    while (GLOBALS->max_compare_pos_bsearch_c_1 &&
+           GLOBALS->max_compare_pos_bsearch_c_1->next) /* non-RoSync dumper deglitching fix */
     {
         if (GLOBALS->max_compare_pos_bsearch_c_1->time !=
             GLOBALS->max_compare_pos_bsearch_c_1->next->time)
             break;
         GLOBALS->max_compare_pos_bsearch_c_1 = GLOBALS->max_compare_pos_bsearch_c_1->next;
+    }
+
+    // Release the snapshot if we acquired one
+    if (history != NULL) {
+        gw_node_history_unref(history);
     }
 
     return (GLOBALS->max_compare_pos_bsearch_c_1);

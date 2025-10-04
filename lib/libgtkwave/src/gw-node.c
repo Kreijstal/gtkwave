@@ -242,6 +242,28 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     return rc;
 }
 
+GwNodeHistory *gw_node_create_history_snapshot(GwNode *node)
+{
+    g_return_val_if_fail(node != NULL, NULL);
+    
+    GwNodeHistory *history = gw_node_history_new();
+    
+    // Copy the head entry (inline struct)
+    gw_node_history_set_head(history, node->head);
+    
+    // Point to the node's current entry
+    gw_node_history_set_curr(history, node->curr);
+    
+    // Share the linked list chain (don't deep copy, just reference)
+    // NOTE: The head is copied as a value, but head.next points to the shared chain
+    // This is intentional - the snapshot shares the entries with the node
+    
+    // Regenerate harray from the shared chain to ensure consistency
+    gw_node_history_regenerate_harray(history);
+    
+    return history;
+}
+
 GwNodeHistory *gw_node_get_history_snapshot(GwNode *node)
 {
     g_return_val_if_fail(node != NULL, NULL);

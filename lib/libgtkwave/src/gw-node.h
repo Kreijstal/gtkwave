@@ -82,6 +82,19 @@ struct _GwNode
 GwExpandInfo *gw_node_expand(GwNode *self);
 
 /**
+ * gw_node_create_history_snapshot:
+ * @node: A GwNode
+ *
+ * Creates a new GwNodeHistory snapshot from the node's current state.
+ * The snapshot shares the node's history entries (doesn't deep copy them).
+ * The snapshot gets a freshly generated harray that is consistent with the
+ * current linked list.
+ *
+ * Returns: (transfer full): A new GwNodeHistory snapshot with refcount=1
+ */
+GwNodeHistory *gw_node_create_history_snapshot(GwNode *node);
+
+/**
  * gw_node_get_history_snapshot:
  * @node: A GwNode
  *

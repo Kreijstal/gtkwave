@@ -14,6 +14,7 @@ typedef struct {
 #include "gw-vlist-writer.h"
 #include "gw-vlist-reader.h"
 #include "gw-hash.h"
+#include "gw-node-history.h"
 #include "vcd-keywords.h"
 #include <stdio.h>
 #include <fstapi.h>
@@ -3549,6 +3550,17 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 // Store the last absolute time for this signal for the next import
 
                 g_object_unref(reader);
+                
+                // --- CRITICAL: Thread-safe snapshot update ---
+                // After appending new entries to the node's linked list, create a consistent
+                // snapshot with an up-to-date harray and atomically publish it.
+                GwNodeHistory *new_snapshot = gw_node_create_history_snapshot(node);
+                
+                // Atomically publish the new snapshot
+                GwNodeHistory *old_snapshot = gw_node_publish_new_history(node, new_snapshot);
+                if (old_snapshot != NULL) {
+                    gw_node_history_unref(old_snapshot);
+                }
             }else{
 
                 g_test_message("JIT IMPORT: Signal '%s' (ID: %s) has NO new data in vlist. numhist is currently %d.",

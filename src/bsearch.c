@@ -123,6 +123,8 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
                 h_next = h_temp;
             }
             n->head.next = NULL;
+            n->curr = &(n->head);  // Reset curr to point to head
+            n->numhist = 0;  // Reset count
         }
         
         if (n->harray == NULL) {

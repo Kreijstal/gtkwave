@@ -88,6 +88,7 @@ int main(int argc, char **argv)
 
     WAVE_LOCALE_FIX
 
+    g_set_prgname("twinwave");
     if (!gtk_init_check(&argc, &argv)) {
         printf("Could not initialize GTK!  Is DISPLAY env var/xhost set?\n\n");
         exit(255);

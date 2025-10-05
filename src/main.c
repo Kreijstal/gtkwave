@@ -833,6 +833,7 @@ int main_2(int opt_vcd, int argc, char *argv[])
 #ifdef __MINGW32__
         gtk_disable_setlocale();
 #endif
+        g_set_prgname("gtkwave");
         if (!gtk_init_check(&argc, &argv)) {
 #if defined(__APPLE__)
 #ifndef MAC_INTEGRATION

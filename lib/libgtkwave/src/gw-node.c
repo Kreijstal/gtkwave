@@ -25,6 +25,27 @@ void gw_expand_info_free_deep(GwExpandInfo *self) {
     gw_expand_info_free(self);
 }
 
+GwExpandInfo *gw_expand_info_acquire(GwExpandInfo *self) {
+    if (self) {
+        self->refcount++;
+    }
+    return self;
+}
+
+void gw_expand_info_release(GwExpandInfo *self) {
+    if (!self) {
+        return;
+    }
+    
+    self->refcount--;
+    
+    if (self->refcount <= 0) {
+        // Only free the expand_info structure, not the child nodes
+        // The child nodes are owned by traces or the dump file
+        gw_expand_info_free(self);
+    }
+}
+
 GwExpandInfo *gw_node_expand(GwNode *self)
 {
     g_return_val_if_fail(self != NULL, NULL);
@@ -34,9 +55,9 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         return NULL;
     }
 
-    // Handle re-expansion: free existing expansion info and children
+    // Handle re-expansion: release existing expansion info and children using reference counting
     if (self->expand_info) {
-        gw_expand_info_free_deep(self->expand_info);
+        gw_expand_info_release(self->expand_info);
         self->expand_info = NULL;
     }
 
@@ -53,6 +74,7 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     rc->msb = msb;
     rc->lsb = lsb;
     rc->width = width;
+    rc->refcount = 1;  // Initialize reference count to 1
 
     char *namex = self->nname;
 

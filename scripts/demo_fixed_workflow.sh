@@ -137,9 +137,6 @@ wait "${AWESOME_PID}" 2>/dev/null || true
 
 echo ""
 if [ "${EXIT_CODE:-0}" -eq 0 ]; then
-    echo "====================================================="
-    echo "✅ ALL TESTS COMPLETED SUCCESSFULLY - NO SEGFAULTS!"
-    echo "====================================================="
 else
     echo "====================================================="
     echo "❌ Tests failed with exit code: ${EXIT_CODE}"

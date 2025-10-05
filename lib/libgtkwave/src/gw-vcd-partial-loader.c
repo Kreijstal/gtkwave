@@ -2837,8 +2837,8 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
 
     // Debug: log what type header we're writing
     g_test_message("Creating vlist writer for signal '%s': size=%d, vartype=%d, writing header type=%c",
-                  v->name, v->size, v->vartype, 
-                  (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) ? '0' : 
+                  v->name, v->size, v->vartype,
+                  (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) ? '0' :
                   ((v->vartype == V_REAL) ? 'R' : (v->vartype == V_STRINGTYPE) ? 'S' : 'B'));
 
     // Write the vlist header
@@ -3413,8 +3413,9 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
 
             // If new data has been written, process it
-            if (vlist && vlist->size > last_pos) {
-                g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist->size);
+            guint vlist_total_size = gw_vlist_size(vlist);
+            if (vlist && vlist_total_size > last_pos) {
+                g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist_total_size);
 
                 GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
                 gw_vlist_reader_set_position(reader, last_pos);
@@ -3428,7 +3429,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 // Process header if this is the first read
                 if (last_pos == 0 && vlist->size >= 1) {
                     vlist_type = gw_vlist_reader_read_uv32(reader);
-                    g_test_message("JIT IMPORT: First read for %s, vlist_type from vlist=%c (0x%02x)", 
+                    g_test_message("JIT IMPORT: First read for %s, vlist_type from vlist=%c (0x%02x)",
                                   symbol_id, (char)vlist_type, vlist_type);
                     if (vlist_type == '0') {
                         gw_vlist_reader_read_uv32(reader); // Skip vartype
@@ -3444,7 +3445,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     // For subsequent reads, we need to know the vlist type
                     // It's stored in the upper 32 bits of the import position
                     vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
-                    g_test_message("JIT IMPORT: Subsequent read for %s, vlist_type=%c (0x%02x)", 
+                    g_test_message("JIT IMPORT: Subsequent read for %s, vlist_type=%c (0x%02x)",
                                   symbol_id, (char)vlist_type, vlist_type);
                 }
 

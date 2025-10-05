@@ -1468,7 +1468,8 @@ static unsigned expand_trace(GwTrace *t_top)
                     GLOBALS->which_t_color = color;
                     AddNode(e->narray[i], NULL);
                 }
-                gw_expand_info_free(e);
+                // Don't free expand_info here - it's owned by the node via node->expand_info
+                // It will be freed when the node is freed or replaced by re-expansion
             }
         }
 
@@ -1827,7 +1828,8 @@ GwBitVector *combine_traces(int direction, GwTrace *single_trace_only)
                                 n[nodepnt++] = e->narray[ix];
                                 e->narray[ix]->expansion->refcnt++;
                             }
-                            gw_expand_info_free(e);
+                            // Don't free expand_info here - it's owned by the node via node->expand_info
+                            // It will be freed when the node is freed or replaced by re-expansion
                         }
                     }
                 }

@@ -55,9 +55,9 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         return NULL;
     }
 
-    // Handle re-expansion: free existing expansion info and children
+    // Handle re-expansion: release existing expansion info and children using reference counting
     if (self->expand_info) {
-        gw_expand_info_free_deep(self->expand_info);
+        gw_expand_info_release(self->expand_info);
         self->expand_info = NULL;
     }
 

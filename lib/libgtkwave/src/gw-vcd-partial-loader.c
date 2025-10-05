@@ -3569,10 +3569,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     node->harray = NULL;
 
                     // If this node is an expanded vector, invalidate its children too.
-                    // TODO: Re-enable with proper expand_info lifecycle management
-                    // Currently disabled to avoid crashes. The expand_info structure
-                    // needs full reference counting implementation to work safely.
-                    /*
+                    // Use reference counting to ensure safe access to expand_info
                     if (node->expand_info) {
                         GwExpandInfo *einfo = node->expand_info;
                         
@@ -3610,7 +3607,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         // Release the reference
                         gw_expand_info_release(einfo);
                     }
-                    */
                 }
 
                 // Store both the import position and vlist type for future reads

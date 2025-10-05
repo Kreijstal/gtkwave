@@ -305,9 +305,12 @@ static gboolean kick_timeout_callback(gpointer user_data)
                                 child_trace = child_trace->t_next;
                             }
                             
-                            // Do NOT free the old expand_info yet - keep reference counting
-                            // infrastructure in place but don't actively use it until fully tested
-                            // For now, this creates a small memory leak but prevents crashes
+                            // Release the old expand_info using reference counting
+                            // The VCD partial loader may still have a reference to it via acquire/release,
+                            // so it won't be freed until all references are released
+                            if (old_expand_info) {
+                                gw_expand_info_release(old_expand_info);
+                            }
                         } else {
                             // Re-expansion failed, restore the old expand_info pointer
                             parent_node->expand_info = old_expand_info;

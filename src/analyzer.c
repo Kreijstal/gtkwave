@@ -673,10 +673,10 @@ void FreeTrace(GwTrace *t)
             if (t->n.nd->expansion) {
                 DeleteNode(t->n.nd);
             } else if (t->n.nd->expand_info) {
-                // NOTE: Expand_info cleanup is not performed here as the node is owned by
-                // the dump file and may still be accessed by the VCD loader during data processing.
-                // The expand_info will be freed when the dump file is closed.
-                // Reference counting for expand_info is available but not fully integrated yet.
+                // Use reference counting to safely release expand_info
+                // The VCD loader may still have references to it via acquire/release
+                gw_expand_info_release(t->n.nd->expand_info);
+                t->n.nd->expand_info = NULL;
             }
         }
     }

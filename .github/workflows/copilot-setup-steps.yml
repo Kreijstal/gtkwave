@@ -31,4 +31,5 @@ jobs:
 
       - name: Install Python dependencies
         run: sudo /usr/bin/python3 -m pip install pyvcd --break
-
+      - name: meson setup
+        run: meson setup builddir

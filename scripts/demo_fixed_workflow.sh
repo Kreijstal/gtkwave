@@ -39,11 +39,13 @@ _run_demo_via_launcher() {
     # executes in the prepared accessibility environment.
     cat <<'INNER' | "$launcher" bash -s --
 # Inside accessibility-prepared environment (DISPLAY, DBUS, AT-SPI should be available)
-set -euo pipefail
+set -eo pipefail
 
 echo "Loading meson devenv..."
 # meson devenv prints shell assignments; use process substitution to source them.
 # If meson devenv is not present, this will fail, which is acceptable here.
+# Note: We don't use 'set -u' here because meson devenv output may reference
+# variables that aren't set yet (e.g., appending to GI_TYPELIB_PATH).
 if command -v meson >/dev/null 2>&1; then
     # shellcheck disable=SC1091
     source <(meson devenv -C builddir --dump)
@@ -92,11 +94,16 @@ exit "${EXIT_CODE}"
 INNER
 }
 
-# Prefer using the new run_with_accessibility wrapper if available.
-LAUNCHER="./scripts/run_with_accessibility.sh"
+# Prefer using the older setup_test_env.sh which properly sets up AT-SPI
+LAUNCHER="./scripts/setup_test_env.sh"
 if [ -x "${LAUNCHER}" ]; then
-    echo "Using ${LAUNCHER} to provide Xvfb / D-Bus / AT-SPI when needed..."
+    echo "Using ${LAUNCHER} to provide AT-SPI infrastructure..."
     _run_demo_via_launcher "${LAUNCHER}"
+    EXIT_CODE=$?
+elif [ -x "./scripts/run_with_accessibility.sh" ]; then
+    # Fallback to run_with_accessibility.sh if setup_test_env.sh is not available
+    echo "Using ./scripts/run_with_accessibility.sh (note: AT-SPI may not work properly)..."
+    _run_demo_via_launcher "./scripts/run_with_accessibility.sh"
     EXIT_CODE=$?
 else
     echo "Notice: ${LAUNCHER} not found. Falling back to setup_test_env.sh (older behavior)."

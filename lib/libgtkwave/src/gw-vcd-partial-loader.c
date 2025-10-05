@@ -2750,6 +2750,10 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     v->narray[0] = g_new0(GwNode, 1);
     v->narray[0]->nname = g_strdup(v->name); // The node also needs the full name
 
+    // Initialize the embedded head entry (decorator) with time=-2
+    v->narray[0]->head.time = -2;
+    v->narray[0]->head.v.h_val = GW_BIT_X;
+
     // Create and link both t=-2 and t=-1 entries as separate GwHistEnt structures
     GwHistEnt *h_minus_2 = g_new0(GwHistEnt, 1);
     h_minus_2->time = -2;

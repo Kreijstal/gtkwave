@@ -5,12 +5,23 @@ import time
 
 
 def find_gtkwave_app():
-    """Find the GTKWave application."""
-    desktop = pyatspi.Registry.getDesktop(0)
-    for i in range(desktop.childCount):
-        app = desktop.getChildAtIndex(i)
-        if "gtkwave" in (getattr(app, "name", "") or "").lower():
-            return app
+    """Fast GTKWave application detection - only checks recent applications."""
+    try:
+        desktop = pyatspi.Registry.getDesktop(0)
+        app_count = desktop.childCount
+
+        # GTKWave typically appears as one of the last applications
+        # Only check the most recent 15 applications to avoid AT-SPI delays
+        start_idx = max(0, app_count - 15)
+
+        for i in range(start_idx, app_count):
+            app = desktop.getChildAtIndex(i)
+            name = getattr(app, "name", "") or ""
+            if "gtkwave" in name.lower():
+                return app
+    except Exception:
+        pass
+
     return None
 
 
@@ -238,11 +249,6 @@ def main():
 
     print("Waiting for GTKWave application...")
 
-    # Initial delay to allow GTKWave to start up and become visible to AT-SPI
-    initial_delay = 2
-    print(f"Waiting {initial_delay} seconds for GTKWave to start up...")
-    time.sleep(initial_delay)
-
     while time.time() - start_time < timeout:
         app = find_gtkwave_app()
 
@@ -326,6 +332,11 @@ def main():
         time.sleep(0.1)
 
     print(f"Timeout: GTKWave or required elements not found within {timeout} seconds")
+    print("This could be due to:")
+    print("  - GTKWave not starting properly")
+    print("  - AT-SPI accessibility not working")
+    print("  - GTKWave window not being detected by accessibility APIs")
+    print("  - AT-SPI being too slow (takes ~16s to enumerate all apps)")
     return 1
 
 

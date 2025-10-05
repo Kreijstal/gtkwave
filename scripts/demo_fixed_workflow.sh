@@ -115,10 +115,10 @@ echo "  - DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-<unset>}"
 echo ""
 
 # Start awesome.py in background (as specified in issue)
-echo "Starting awesome_fast.py in background..."
-/usr/bin/python3 scripts/awesome_fast.py &
+echo "Starting awesome.py in background..."
+/usr/bin/python3 scripts/awesome.py &
 AWESOME_PID=$!
-echo "✓ awesome_fast.py running (PID: $AWESOME_PID)"
+echo "✓ awesome.py running (PID: $AWESOME_PID)"
 echo ""
 
 # Give it a moment to initialize
@@ -137,9 +137,6 @@ wait "${AWESOME_PID}" 2>/dev/null || true
 
 echo ""
 if [ "${EXIT_CODE:-0}" -eq 0 ]; then
-    echo "====================================================="
-    echo "✅ ALL TESTS COMPLETED SUCCESSFULLY - NO SEGFAULTS!"
-    echo "====================================================="
 else
     echo "====================================================="
     echo "❌ Tests failed with exit code: ${EXIT_CODE}"
@@ -173,8 +170,8 @@ else
                 source <(meson devenv -C builddir --dump)
             fi
 
-            echo "Starting awesome_fast.py in background..."
-            /usr/bin/python3 scripts/awesome_fast.py &
+            echo "Starting awesome.py in background..."
+            /usr/bin/python3 scripts/awesome.py &
             AWESOME_PID=$!
             sleep 2
 

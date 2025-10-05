@@ -85,7 +85,7 @@ static void test_node_re_expansion_updates_children(void)
 
     // --- ARRANGE (Part 2): Simulate a real-time update ---
     g_test_message("Simulating real-time update: adding new history to parent...");
-    GwHistEnt *h3 = create_vector_entry(30, "0100");
+    GwHistEnt *h3 = create_vector_entry(30, "0101"); // bit 0 changes from 0 to 1
     parent->curr->next = h3; // Append to linked list
     parent->curr = h3;
     parent->numhist++;
@@ -120,7 +120,7 @@ static void test_node_re_expansion_updates_children(void)
     // Verify that this is a different child node instance (new allocation)
     g_assert_true(new_child_bit0 != old_child_bit0);
 
-    // Verify its history now includes the new value from t=30 (which is '0' for bit 0)
+    // Verify its history now includes the new value from t=30 (which is '1' for bit 0)
     g_test_message("Verifying updated history for child bit 0...");
     child_hist = new_child_bit0->head.next; // Start from beginning again
     g_assert_nonnull(child_hist);
@@ -139,7 +139,7 @@ static void test_node_re_expansion_updates_children(void)
         return;
     }
     g_assert_cmpint(child_hist->time, ==, 30);
-    g_assert_cmpint(child_hist->v.h_val, ==, GW_BIT_0); // Value of bit 0 in "0100"
+    g_assert_cmpint(child_hist->v.h_val, ==, GW_BIT_1); // Value of bit 0 in "0101"
     g_assert_null(child_hist->next); // Should now be the end
 
     g_test_message("Re-expansion and child update verified successfully.");

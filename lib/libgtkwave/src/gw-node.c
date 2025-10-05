@@ -154,10 +154,8 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     // 2. Already-expanded child nodes being re-expanded
     // We detect this by checking if non-special-time history entries have valid h_vector pointers.
     if (width > 1 && self->numhist > 0) {
-        g_debug("gw_node_expand: Checking %d history entries for node '%s'", self->numhist, self->nname);
         for (i = 0; i < self->numhist; i++) {
             h = self->harray[i];
-            g_debug("  Entry %d: time=%ld, h_vector=%p", i, h->time, h->v.h_vector);
             // Skip special time markers (t=-2, t=-1, and t>=max which use h_val)
             if (h->time >= 0 && h->time < GW_TIME_MAX - 1) {
                 // For vector nodes, h_vector should be a valid pointer, not a small integer

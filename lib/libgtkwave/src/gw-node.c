@@ -9,6 +9,24 @@ void gw_expand_info_free(GwExpandInfo *self) {
     g_free(self);
 }
 
+void gw_expand_info_free_deep(GwExpandInfo *self) {
+    g_return_if_fail(self != NULL);
+
+    if (self->narray) {
+        for (int i = 0; i < self->width; i++) {
+            if (self->narray[i]) {
+                // Free child node and its internally allocated members
+                g_free(self->narray[i]->harray);
+                g_free(self->narray[i]->nname);
+                g_free(self->narray[i]);
+            }
+        }
+        g_free(self->narray);
+        self->narray = NULL;
+    }
+    gw_expand_info_free(self);
+}
+
 GwExpandInfo *gw_node_expand(GwNode *self)
 {
     g_return_val_if_fail(self != NULL, NULL);
@@ -16,6 +34,12 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     if (!self->extvals) {
         // DEBUG(fprintf(stderr, "Nothing to expand\n"));
         return NULL;
+    }
+
+    // Handle re-expansion: free existing expansion info and children
+    if (self->expand_info) {
+        gw_expand_info_free_deep(self->expand_info);
+        self->expand_info = NULL;
     }
 
     gint msb = self->msi;
@@ -264,6 +288,11 @@ GwExpandInfo *gw_node_expand(GwNode *self)
             narray[i]->harray[j] = htemp;
             htemp = htemp->next;
         }
+    }
+
+    // Store the link from parent to children
+    if (rc) {
+        self->expand_info = rc;
     }
 
     return rc;

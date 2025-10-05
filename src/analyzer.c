@@ -26,6 +26,7 @@
 #include "ttranslate.h"
 #include "analyzer.h"
 #include <gtkwave.h>
+#include "gw-node.h"
 
 void UpdateTraceSelection(GwTrace *t);
 int traverse_vector_nodes(GwTrace *t);
@@ -639,8 +640,14 @@ void FreeTrace(GwTrace *t)
         if (t->n.vec)
             free_2(t->n.vec);
     } else {
-        if (t->n.nd && t->n.nd->expansion) {
-            DeleteNode(t->n.nd);
+        if (t->n.nd) {
+            if (t->n.nd->expansion) {
+                DeleteNode(t->n.nd);
+            } else if (t->n.nd->expand_info) {
+                // This is a parent vector that has been expanded, clean up the children
+                gw_expand_info_free_deep(t->n.nd->expand_info);
+                t->n.nd->expand_info = NULL;
+            }
         }
     }
 

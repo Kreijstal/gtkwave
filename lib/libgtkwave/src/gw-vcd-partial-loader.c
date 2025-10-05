@@ -3567,6 +3567,22 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 // This ensures bsearch_node will rebuild it with the correct size on next access
                 if (harray_needs_invalidation && node->harray) {
                     node->harray = NULL;
+
+                    // If this node is an expanded vector, invalidate its children too.
+                    if (node->expand_info) {
+                        GwExpandInfo *einfo = node->expand_info;
+                        // Check if expand_info structure is still valid (narray pointer should be non-NULL)
+                        if (einfo->narray) {
+                            g_debug("Propagating harray invalidation from '%s' to %d children.", node->nname, einfo->width);
+                            for (int i = 0; i < einfo->width; i++) {
+                                if (einfo->narray[i]) {
+                                    einfo->narray[i]->harray = NULL;
+                                }
+                            }
+                        } else {
+                            g_debug("Expand info for '%s' has been freed (narray is NULL), skipping propagation", node->nname);
+                        }
+                    }
                 }
 
                 // Store both the import position and vlist type for future reads

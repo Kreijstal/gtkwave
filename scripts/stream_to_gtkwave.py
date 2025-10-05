@@ -131,6 +131,9 @@ def stream_to_gtkwave_interactive():
 
     This version monitors the gtkwave process: if it exits (crashes or closed),
     streaming stops and stderr is reported to the user.
+    
+    Returns:
+        int: 0 if successful, 1 if GTKWave crashed or exited with error
     """
     shmidcat_proc = None
     gtkwave_proc = None
@@ -163,7 +166,7 @@ def stream_to_gtkwave_interactive():
             from vcd import VCDWriter
         except Exception:
             print("\n--- ERROR: 'vcd' Python package not found. Install with `pip install vcd` or similar. ---")
-            return
+            return 1
 
         # writer writes to shmidcat_proc.stdin.
         writer = VCDWriter(shmidcat_proc.stdin, timescale='1 ns', date='today')
@@ -177,7 +180,7 @@ def stream_to_gtkwave_interactive():
         if gtkwave_proc.poll() is not None:
             print("\n--- ERROR: GTKWave exited immediately after launch. ---")
             _report_gtkwave_exit(gtkwave_proc)
-            return
+            return 1
 
         # 4. Assert that the window appears.
         if not assert_window_is_shown_xlib(gtkwave_proc.pid):
@@ -185,9 +188,9 @@ def stream_to_gtkwave_interactive():
             if gtkwave_proc.poll() is not None:
                 print("\n--- ERROR: GTKWave terminated while waiting for window. ---")
                 _report_gtkwave_exit(gtkwave_proc)
-                return
+                return 1
             print("\n--- TEST FAILED: GTKWave interactive GUI did not appear. ---")
-            return
+            return 1
 
         print("\n--- TEST PASSED: GTKWave interactive GUI is visible. ---")
 
@@ -302,6 +305,17 @@ def stream_to_gtkwave_interactive():
                 pass
 
         print("Processes terminated.")
+        
+        # Return exit code based on whether GTKWave crashed
+        if gtkwave_proc and gtkwave_proc.returncode is not None:
+            if gtkwave_proc.returncode < 0:
+                # Crashed with signal
+                return 1
+            elif gtkwave_proc.returncode > 0:
+                # Exited with error
+                return 1
+        # Success - GTKWave didn't crash
+        return 0
 
 
 if __name__ == "__main__":
@@ -310,4 +324,5 @@ if __name__ == "__main__":
     # crashing silently.
     if not sys.platform.startswith("linux"):
         print("This script is intended for Linux desktop environments.")
-    stream_to_gtkwave_interactive()
+    exit_code = stream_to_gtkwave_interactive()
+    sys.exit(exit_code if exit_code is not None else 0)

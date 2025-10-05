@@ -142,10 +142,10 @@ GwExpandInfo *gw_node_expand(GwNode *self)
                 // If h_vector appears to be a small integer value (likely h_val being misinterpreted),
                 // then this node's history uses scalar storage and cannot be expanded as a vector
                 if (h->v.h_vector == NULL || (guintptr)(h->v.h_vector) < 256) {
-                    g_error(
-                        "Cannot expand vector '%s': found scalar history data instead of vector data. This can happen with corrupted or improperly streamed VCD files.",
+                    g_warning(
+                        "Cannot expand vector '%s': found scalar history data instead of vector data. This can happen with streaming VCD data where integers are encoded as scalars.",
                         self->nname);
-                    return NULL; /* Should not be reached */
+                    return NULL; /* Return NULL gracefully instead of terminating */
                 }
                 // Found at least one valid vector entry, check the rest of the entries too
             }

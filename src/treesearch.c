@@ -126,6 +126,16 @@ char *varxt_fix(char *s)
 /* Fill the store model using current SIG_ROOT and FILTER_STR.  */
 void fill_sig_store(void)
 {
+    static gboolean in_fill_sig_store = FALSE;
+    
+    // Prevent reentrant calls to avoid memory corruption
+    if (in_fill_sig_store) {
+        fprintf(stderr, "DEBUG: fill_sig_store called reentrantly, skipping\n");
+        return;
+    }
+    
+    in_fill_sig_store = TRUE;
+
     GwTreeNode *t;
     GwTreeNode *t_prev = NULL;
     GtkTreeIter iter;
@@ -310,6 +320,8 @@ void fill_sig_store(void)
     // Debug: Check how many rows are in the signal store after population
     gint row_count = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(GLOBALS->sig_store_treesearch_gtk2_c_1), NULL);
     fprintf(stderr, "DEBUG: Signal store populated with %d rows\n", row_count);
+    
+    in_fill_sig_store = FALSE;
 }
 
 /*

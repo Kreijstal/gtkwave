@@ -1102,6 +1102,11 @@ static void destroy(GtkWidget *widget)
 {
     GwSignalList *signal_list = GW_SIGNAL_LIST(widget);
 
+    if (signal_list->surface != NULL) {
+        cairo_surface_destroy(signal_list->surface);
+        signal_list->surface = NULL;
+    }
+
     if (signal_list->hadjustment != NULL) {
         g_object_unref(signal_list->hadjustment);
         signal_list->hadjustment = NULL;

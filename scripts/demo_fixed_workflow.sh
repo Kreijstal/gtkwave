@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 #
 # Demonstration script showing how to run the commands from the issue
-# with proper accessibility support. This version wraps the demo execution
-# with `run_with_accessibility.sh` which will detect headless environments
-# and start Xvfb / D-Bus / AT-SPI as needed.
+# with proper accessibility support. This version uses combinedscript.py
+# which integrates both VCD streaming and GUI automation in a single script.
 #
 # If `run_with_accessibility.sh` is not present, it falls back to the
 # older `setup_test_env.sh` usage.
@@ -114,29 +113,16 @@ echo "  - DISPLAY=${DISPLAY:-<unset>}"
 echo "  - DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-<unset>}"
 echo ""
 
-# Start awesome.py in background (as specified in issue)
-echo "Starting awesome.py in background..."
-/usr/bin/python3 scripts/awesome.py &
-AWESOME_PID=$!
-echo "✓ awesome.py running (PID: $AWESOME_PID)"
-echo ""
-
-# Give it a moment to initialize
-sleep 2
-
-# Run stream_to_gtkwave.py (as specified in issue)
-echo "Running stream_to_gtkwave.py..."
-/usr/bin/python3 scripts/stream_to_gtkwave.py
+# Run combinedscript.py which integrates both VCD streaming and GUI automation
+echo "Running combinedscript.py (integrated VCD streaming and GUI automation)..."
+/usr/bin/python3 scripts/combinedscript.py
 EXIT_CODE=$?
-
-# Cleanup background helper
-echo ""
-echo "Cleaning up background processes..."
-kill "${AWESOME_PID}" 2>/dev/null || true
-wait "${AWESOME_PID}" 2>/dev/null || true
 
 echo ""
 if [ "${EXIT_CODE:-0}" -eq 0 ]; then
+    echo "====================================================="
+    echo "✅ All tests passed successfully!"
+    echo "====================================================="
 else
     echo "====================================================="
     echo "❌ Tests failed with exit code: ${EXIT_CODE}"
@@ -170,17 +156,9 @@ else
                 source <(meson devenv -C builddir --dump)
             fi
 
-            echo "Starting awesome.py in background..."
-            /usr/bin/python3 scripts/awesome.py &
-            AWESOME_PID=$!
-            sleep 2
-
-            echo "Running stream_to_gtkwave.py..."
-            /usr/bin/python3 scripts/stream_to_gtkwave.py
+            echo "Running combinedscript.py (integrated VCD streaming and GUI automation)..."
+            /usr/bin/python3 scripts/combinedscript.py
             EXIT_CODE=$?
-
-            echo "Cleaning up..."
-            kill $AWESOME_PID 2>/dev/null || true
 
             exit $EXIT_CODE
         '

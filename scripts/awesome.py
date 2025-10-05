@@ -9,6 +9,24 @@ T = TypeVar("T")
 U = TypeVar("U")
 
 
+def send_tab_key(app) -> Result[Any]:
+    """Send Tab key to the focused window."""
+    try:
+        focus_window(app)
+        time.sleep(0.1)
+
+        print("Sending Tab key...")
+        pyatspi.Registry.generateKeyboardEvent(
+            pyatspi.keySyms.index("Tab"), None, pyatspi.KEY_SYM
+        )
+
+        time.sleep(0.1)
+        print("Tab key sent successfully")
+        return Result.success(app)
+    except Exception as e:
+        return Result.failure(f"Failed to send Tab key: {e}")
+
+
 @dataclass
 class Result(Generic[T]):
     """A Result monad representing success or failure."""

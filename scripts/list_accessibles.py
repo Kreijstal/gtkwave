@@ -477,8 +477,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     attempted = False
     if HAS_ATSPI:
         attempted = True
-        ok = enumerate_atspi(app_name_substr, max_depth=args.max_depth, show_actions=args.actions, show_text=args.text)
-        if ok:
+        if ok := enumerate_atspi(
+            app_name_substr,
+            max_depth=args.max_depth,
+            show_actions=args.actions,
+            show_text=args.text,
+        ):
             # We attempted AT-SPI enumeration; do not proceed to Xlib unless no matches.
             return 0
 

@@ -75,7 +75,7 @@ start_xvfb_if_needed() {
 
 # Step 1: Compile
 echo "Step 1: Compiling GTKWave..."
-meson compile -C builddir
+meson compile -C builddir-asan
 echo "✓ Compilation complete"
 echo ""
 
@@ -103,7 +103,7 @@ echo "Loading meson devenv..."
 # variables that aren't set yet (e.g., appending to GI_TYPELIB_PATH).
 if command -v meson >/dev/null 2>&1; then
     # shellcheck disable=SC1091
-    source <(meson devenv -C builddir --dump)
+    source <(meson devenv -C builddir-asan --dump)
 else
     echo "Warning: meson not found in PATH; proceeding without meson devenv."
 fi
@@ -153,7 +153,7 @@ else
         ./scripts/setup_test_env.sh bash -c '
             echo "Loading meson devenv..."
             if command -v meson >/dev/null 2>&1; then
-                source <(meson devenv -C builddir --dump)
+                source <(meson devenv -C builddir-asan --dump)
             fi
 
             echo "Running combinedscript.py (integrated VCD streaming and GUI automation)..."

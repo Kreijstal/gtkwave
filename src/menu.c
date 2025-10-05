@@ -1211,6 +1211,8 @@ static void menu_open_group(GtkWidget *widget, gpointer data)
     GwTrace *t;
     unsigned dirty = 0;
 
+    printf("DEBUG: menu_open_group called\n");
+
     /* currently only called by toggle menu option, so no help menu text */
 
     if (GLOBALS->dnd_state) {
@@ -1222,6 +1224,7 @@ static void menu_open_group(GtkWidget *widget, gpointer data)
     while (t) {
         if ((t->flags & TR_HIGHLIGHT) && (IsGroupBegin(t) || IsGroupEnd(t))) {
             dirty = 1;
+            printf("DEBUG: Opening group: %s\n", t->name ? t->name : "unnamed");
             break;
         }
         t = t->t_next;
@@ -1230,8 +1233,10 @@ static void menu_open_group(GtkWidget *widget, gpointer data)
     if (dirty) {
         OpenTrace(t);
         GLOBALS->signalwindow_width_dirty = 1;
+        printf("DEBUG: Calling redraw_signals_and_waves after opening group\n");
         redraw_signals_and_waves();
     } else {
+        printf("DEBUG: No group to open\n");
         must_sel_bg();
     }
 }
@@ -1244,6 +1249,8 @@ static void menu_close_group(GtkWidget *widget, gpointer data)
     GwTrace *t;
     unsigned dirty = 0;
 
+    printf("DEBUG: menu_close_group called\n");
+
     /* currently only called by toggle menu option, so no help menu text */
 
     if (GLOBALS->dnd_state) {
@@ -1255,6 +1262,7 @@ static void menu_close_group(GtkWidget *widget, gpointer data)
     while (t) {
         if ((t->flags & TR_HIGHLIGHT) && (IsGroupBegin(t) || IsGroupEnd(t))) {
             dirty = 1;
+            printf("DEBUG: Closing group: %s\n", t->name ? t->name : "unnamed");
             break;
         }
         t = t->t_next;
@@ -1263,8 +1271,10 @@ static void menu_close_group(GtkWidget *widget, gpointer data)
     if (dirty) {
         CloseTrace(t);
         GLOBALS->signalwindow_width_dirty = 1;
+        printf("DEBUG: Calling redraw_signals_and_waves after closing group\n");
         redraw_signals_and_waves();
     } else {
+        printf("DEBUG: No group to close\n");
         must_sel_bg();
     }
 }
@@ -1581,6 +1591,8 @@ void menu_toggle_group(gpointer null_data, guint callback_action, GtkWidget *wid
     unsigned dirty_group = 0;
     unsigned dirty_signal = 0;
 
+    printf("DEBUG: menu_toggle_group called\n");
+
     if (GLOBALS->dnd_state) {
         dnd_error();
         return;
@@ -1590,31 +1602,38 @@ void menu_toggle_group(gpointer null_data, guint callback_action, GtkWidget *wid
     while (t) {
         if ((t->flags & TR_HIGHLIGHT) && (IsGroupBegin(t) || IsGroupEnd(t))) {
             dirty_group = 1;
+            printf("DEBUG: Found highlighted group trace: %s\n", t->name ? t->name : "unnamed");
             break;
         }
 
         if ((t->flags & TR_HIGHLIGHT) && HasWave(t)) {
             dirty_signal = 1;
+            printf("DEBUG: Found highlighted signal trace: %s\n", t->name ? t->name : "unnamed");
             break;
         }
         t = t->t_next;
     }
 
     if (dirty_group) {
+        printf("DEBUG: Toggling group\n");
         if (IsClosed(t)) {
+            printf("DEBUG: Group is closed, opening\n");
             menu_open_group(widget, null_data);
         } else {
+            printf("DEBUG: Group is open, closing\n");
             menu_close_group(widget, null_data);
         }
         return;
     }
     if (dirty_signal) {
+        printf("DEBUG: Expanding signal\n");
         ClearTraces();
         t->flags |= TR_HIGHLIGHT;
         menu_expand(null_data, 0, widget);
         return;
     }
 
+    printf("DEBUG: No valid selection for toggle\n");
     must_sel_bg();
 }
 

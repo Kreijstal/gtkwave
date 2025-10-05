@@ -275,6 +275,8 @@ GtkWidget *create_signalwindow(void)
 
 void redraw_signals_and_waves(void)
 {
+    printf("DEBUG: redraw_signals_and_waves called\n");
+
     if (!GLOBALS->signalarea || !GLOBALS->wavewindow) {
         return;
     }

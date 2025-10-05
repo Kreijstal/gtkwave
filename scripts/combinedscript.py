@@ -584,6 +584,7 @@ def stream_to_gtkwave_integrated():
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=dict(os.environ, LD_PRELOAD="/usr/lib/libasan.so.8"),
         )
         print(f"GTKWave process launched with PID: {gtkwave_proc.pid}")
 

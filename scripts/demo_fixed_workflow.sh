@@ -115,6 +115,7 @@ echo ""
 
 # Run combinedscript.py which integrates both VCD streaming and GUI automation
 echo "Running combinedscript.py (integrated VCD streaming and GUI automation)..."
+export AUTOMATED_TEST=1
 /usr/bin/python3 scripts/combinedscript.py
 EXIT_CODE=$?
 
@@ -157,6 +158,7 @@ else
             fi
 
             echo "Running combinedscript.py (integrated VCD streaming and GUI automation)..."
+            export AUTOMATED_TEST=1
             /usr/bin/python3 scripts/combinedscript.py
             EXIT_CODE=$?
 

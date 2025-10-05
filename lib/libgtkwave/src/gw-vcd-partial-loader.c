@@ -3571,6 +3571,10 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     // If this node is an expanded vector, invalidate its children too.
                     // Use extremely conservative approach - only propagate if we're very confident
                     // the expand_info structure is still valid and hasn't been freed
+                    // 
+                    // TEMPORARY: Commenting out this code as it's causing segfaults
+                    // TODO: Fix the expand_info lifecycle management issue
+                    /*
                     if (node->expand_info) {
                         GwExpandInfo *einfo = node->expand_info;
                         
@@ -3603,6 +3607,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                                    node->nname, einfo, einfo ? einfo->narray : NULL, einfo ? einfo->width : -1);
                         }
                     }
+                    */
                 }
 
                 // Store both the import position and vlist type for future reads

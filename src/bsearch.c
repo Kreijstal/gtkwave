@@ -14,6 +14,7 @@
 #include "symbol.h"
 #include "bsearch.h"
 #include "strace.h"
+#include "debug.h"
 #include <ctype.h>
 
 static int compar_timechain(const void *s1, const void *s2)
@@ -106,6 +107,9 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
         GwNode *parent = n->expansion->parent;
         int bit_index = n->expansion->parentbit;
         
+        DEBUG(printf("bsearch_node: Rebuilding expanded child '%s' (bit %d) from parent '%s' (numhist=%d)\n",
+                     n->nname, bit_index, parent->nname, parent->numhist));
+        
         // Free existing child history if any (except head)
         if (n->harray) {
             g_free(n->harray);
@@ -183,6 +187,9 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
             
             n->numhist = child_histcount;
             n->curr = child_curr;
+            
+            DEBUG(printf("  Built %d history entries for child from parent's %d entries\n",
+                         child_histcount, parent->numhist));
             
             // Build harray for the child
             GwHistEnt **harray = g_new(GwHistEnt *, child_histcount);

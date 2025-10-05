@@ -140,11 +140,19 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
             if (bit_index < 0 || bit_index >= parent_width) {
                 DEBUG(printf("  ERROR: bit_index %d out of bounds for parent width %d\n", 
                              bit_index, parent_width));
-                // Create minimal history with just the head
-                n->numhist = 1;
-                GwHistEnt **harray = g_new(GwHistEnt *, 1);
+                // Create minimal valid history with 2 entries
+                n->numhist = 2;
+                GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+                dummy->time = GW_TIME_MAX;
+                dummy->v.h_val = GW_BIT_X;
+                dummy->next = NULL;
+                n->head.next = dummy;
+                n->curr = dummy;
+                
+                GwHistEnt **harray = g_new(GwHistEnt *, 2);
                 n->harray = harray;
                 harray[0] = &(n->head);
+                harray[1] = dummy;
                 goto done_building;
             }
             
@@ -210,6 +218,20 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
                              child_histcount, parent->numhist));
                 
                 // Build harray for the child
+                // NOTE: bsearch_node assumes at least 2 entries (accesses harray[1])
+                // so we need to ensure numhist >= 2
+                if (child_histcount < 2) {
+                    // Add a dummy entry at the end to satisfy bsearch requirements
+                    GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+                    dummy->time = GW_TIME_MAX;
+                    dummy->v.h_val = GW_BIT_X;
+                    dummy->next = NULL;
+                    child_curr->next = dummy;
+                    n->curr = dummy;
+                    child_histcount = 2;
+                    n->numhist = 2;
+                }
+                
                 GwHistEnt **harray = g_new(GwHistEnt *, child_histcount);
                 n->harray = harray;
                 
@@ -220,11 +242,19 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
                     histpnt = histpnt->next;
                 }
             } else {
-                // Parent has no history, just use the head
-                n->numhist = 1;
-                GwHistEnt **harray = g_new(GwHistEnt *, 1);
+                // Parent has no history, create minimal valid history with 2 entries
+                n->numhist = 2;
+                GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+                dummy->time = GW_TIME_MAX;
+                dummy->v.h_val = GW_BIT_X;
+                dummy->next = NULL;
+                n->head.next = dummy;
+                n->curr = dummy;
+                
+                GwHistEnt **harray = g_new(GwHistEnt *, 2);
                 n->harray = harray;
                 harray[0] = &(n->head);
+                harray[1] = dummy;
             }
         }
     done_building:
@@ -251,6 +281,35 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
             *harray = histpnt;
             harray++;
             histpnt = histpnt->next;
+        }
+    }
+
+    // Safety check: bsearch_node assumes at least 2 history entries (line 293 accesses harray[1])
+    // This should have been ensured by the expansion code above, but double-check here
+    if (n->numhist < 2 && n->harray) {
+        DEBUG(printf("bsearch_node: WARNING: numhist=%d < 2 for node '%s', fixing\n", n->numhist, n->nname));
+        // This shouldn't happen, but if it does, add a dummy entry
+        GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+        dummy->time = GW_TIME_MAX;
+        dummy->v.h_val = GW_BIT_X;
+        dummy->next = NULL;
+        
+        if (n->numhist == 0) {
+            n->head.next = dummy;
+            n->curr = dummy;
+            g_free(n->harray);
+            n->harray = g_new(GwHistEnt *, 2);
+            n->harray[0] = &(n->head);
+            n->harray[1] = dummy;
+            n->numhist = 2;
+        } else if (n->numhist == 1) {
+            n->curr->next = dummy;
+            n->curr = dummy;
+            g_free(n->harray);
+            n->harray = g_new(GwHistEnt *, 2);
+            n->harray[0] = &(n->head);
+            n->harray[1] = dummy;
+            n->numhist = 2;
         }
     }
 

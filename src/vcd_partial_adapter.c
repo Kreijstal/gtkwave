@@ -253,6 +253,70 @@ static gboolean kick_timeout_callback(gpointer user_data)
             }
        }
 #endif
+            // *** Re-expansion logic for updated vector nodes ***
+            // Iterate through all traces currently displayed in the wave window
+            for (GwTrace *t = GLOBALS->traces.first; t; t = t->t_next) {
+                // Check if the trace is for a node (not a blank/comment) and the node has been expanded
+                if (!t->vector && t->n.nd && t->n.nd->expand_info) {
+                    GwNode *parent_node = t->n.nd;
+                    
+                    // Check if harray is NULL, which means the node has new data and needs re-expansion
+                    if (parent_node->harray == NULL) {
+                        g_debug("Re-expanding trace '%s' due to new data.", parent_node->nname);
+                        
+                        // Store pointer to old expansion info
+                        GwExpandInfo *old_expand_info = parent_node->expand_info;
+                        
+                        // Temporarily clear parent's expand_info pointer to prevent
+                        // gw_node_expand() from trying to free it (which would free
+                        // the child nodes that are still referenced by traces)
+                        parent_node->expand_info = NULL;
+                        
+                        // Re-run expansion - this creates new children
+                        GwExpandInfo *new_expand_info = gw_node_expand(parent_node);
+                        
+                        if (new_expand_info) {
+                            // Find the child traces in the UI and update them to point to the new nodes
+                            // Child traces are the traces immediately following the parent trace
+                            GwTrace *child_trace = t->t_next;
+                            int child_count = 0;
+                            
+                            // Walk through child traces (they follow the parent until we hit a non-child)
+                            while (child_trace && child_count < new_expand_info->width) {
+                                // Check if this trace is actually a child of our parent
+                                // Children should have the parent's name as a prefix
+                                if (!child_trace->vector && child_trace->n.nd && 
+                                    child_trace->n.nd->expansion && 
+                                    child_trace->n.nd->expansion->parent == parent_node) {
+                                    
+                                    // Update the child trace to point to the new child node
+                                    child_trace->n.nd = new_expand_info->narray[child_count];
+                                    
+                                    // Mark the trace for redraw
+                                    child_trace->interactive_vector_needs_regeneration = 1;
+                                    
+                                    child_count++;
+                                } else {
+                                    // Hit a non-child trace, stop looking
+                                    break;
+                                }
+                                
+                                child_trace = child_trace->t_next;
+                            }
+                            
+                            // Intentionally do NOT free the old expand_info or its narray.
+                            // The VCD partial loader may still have references to it during
+                            // harray invalidation. This is a known memory leak that will be
+                            // fixed with proper reference counting in a future commit.
+                            // For now, preventing crashes is more important than preventing leaks.
+                        } else {
+                            // Re-expansion failed, restore the old expand_info pointer
+                            parent_node->expand_info = old_expand_info;
+                        }
+                    }
+                }
+            }
+            
             // Update the time range
             GwTimeRange *range = gw_dump_file_get_time_range(GLOBALS->dump_file);
             if (range) {

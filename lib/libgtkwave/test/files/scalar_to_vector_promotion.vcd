@@ -1,0 +1,14 @@
+$version GTKWave Analyzer v3.3.112 (w)1999-2021 BSI $end
+$date
+    Wed Jul 13 09:00:00 2022
+$end
+$scope module test $end
+$var wire 4 ! vec [3:0] $end
+$upscope $end
+$enddefinitions $end
+#10
+1!
+#20
+b1010 !
+#30
+$end

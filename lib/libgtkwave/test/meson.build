@@ -27,6 +27,7 @@ libgtkwave_tests = [
     'test-gw-vlist-packer',
     'test-gw-vlist-writer',
     'test-gw-vlist',
+    'test-gw-scalar-vector-promo',
 ]
 
 foreach test : libgtkwave_tests

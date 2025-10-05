@@ -2908,6 +2908,36 @@ static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gcha
     }
 }
 
+static void _vcd_partial_handle_scalar_value_change(GwVcdPartialLoader *self, struct vcdsymbol *symbol, GwVlistWriter *writer, unsigned int time_delta, char value_char, GError **error)
+{
+    if (symbol->size > 1 && symbol->vartype != V_REAL) {
+        gchar *promoted_vector = g_alloca(symbol->size + 1);
+        promoted_vector[symbol->size] = '\0';
+        char pad_char = (value_char == '0' || value_char == '1') ? '0' : value_char;
+        memset(promoted_vector, pad_char, symbol->size);
+        if (pad_char == '0') {
+            promoted_vector[symbol->size - 1] = value_char;
+        }
+        process_binary_stream(self, writer, promoted_vector, symbol->size, symbol, time_delta, error);
+    } else {
+        if (writer != NULL) {
+            guint32 accum;
+            switch (value_char) {
+                case '0': accum = (time_delta << 2) | (0 << 1); break;
+                case '1': accum = (time_delta << 2) | (1 << 1); break;
+                case 'x': case 'X': accum = RCV_X | (time_delta << 4); break;
+                case 'z': case 'Z': accum = RCV_Z | (time_delta << 4); break;
+                case 'h': case 'H': accum = RCV_H | (time_delta << 4); break;
+                case 'u': case 'U': accum = RCV_U | (time_delta << 4); break;
+                case 'w': case 'W': accum = RCV_W | (time_delta << 4); break;
+                case 'l': case 'L': accum = RCV_L | (time_delta << 4); break;
+                default: accum = RCV_D | (time_delta << 4); break;
+            }
+            gw_vlist_writer_append_uv32(writer, accum);
+        }
+    }
+}
+
 static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gchar *token, gsize len, GError **error)
 {
     g_assert(token != NULL);
@@ -3030,126 +3060,28 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         time_delta = (unsigned int)(self->current_time_raw - symbol->narray[0]->last_time_raw);
     }
 
-    // Store original last_time for debug message before updating
-    GwTime original_last_time = symbol->narray[0]->last_time;
-    GwTime original_last_time_raw = symbol->narray[0]->last_time_raw;
-
     // Update the node's time tracking (both raw and scaled)
     symbol->narray[0]->last_time = self->current_time;
     symbol->narray[0]->last_time_raw = self->current_time_raw;
 
-    g_test_message("Processing value change for symbol %s (id: %s), time: %" GW_TIME_FORMAT ", last_time: %" GW_TIME_FORMAT ", time_delta: %u, value: %c, writer=%p, vartype=%d, size=%d",
-            symbol->name, identifier, self->current_time, original_last_time, time_delta, value_char, writer, symbol->vartype, symbol->size);
-
-
-
-
-
-
-
     // Handle different value types
     switch (value_char) {
         case '0':
-            if (writer != NULL) {
-                guint32 accum = (time_delta << 2) | (0 << 1);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
-        case 'l':
-        case 'L':
-            if (writer != NULL) {
-                guint32 accum = RCV_L | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
         case '1':
-            if (writer != NULL) {
-                guint32 accum = (time_delta << 2) | (1 << 1);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
-        case 'u':
-        case 'U':
-            if (writer != NULL) {
-                guint32 accum = RCV_U | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
-        case 'w':
-        case 'W':
-            if (writer != NULL) {
-                guint32 accum = RCV_W | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
         case 'x':
         case 'X':
-            if (writer != NULL) {
-                guint32 accum = RCV_X | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
-        case '-':
-            if (writer != NULL) {
-                guint32 accum = RCV_D | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
-        case 'h':
-        case 'H':
-            if (writer != NULL) {
-                guint32 accum = RCV_H | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
-            if (self->in_dumpvars_block) {
-                self->current_time = original_time;
-            }
-            break;
         case 'z':
         case 'Z':
-            if (writer != NULL) {
-                guint32 accum = RCV_Z | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
-                gw_vlist_writer_append_uv32(writer, accum);
-            }
-            // Restore original time after processing value change (if we modified it for dumpvars)
+        case 'h':
+        case 'H':
+        case 'u':
+        case 'U':
+        case 'w':
+        case 'W':
+        case 'l':
+        case 'L':
+        case '-':
+            _vcd_partial_handle_scalar_value_change(self, symbol, writer, time_delta, value_char, error);
             if (self->in_dumpvars_block) {
                 self->current_time = original_time;
             }
@@ -3175,14 +3107,8 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                         g_strlcpy(vector, token + 1, len + 1);
                         vlen = strlen(vector);
                     }
-
-                    // Restore original time after processing value change (if we modified it for dumpvars)
-                    if (self->in_dumpvars_block) {
-                        self->current_time = original_time;
-                    }
                 } else {
                     // For string values, extract the value part (before VCD identifier)
-                    g_debug("Processing string value: token=%s, len=%zu", token, len);
                     const char *value_start = token + 1;
                     const char *id_start = strchr(value_start, ' ');
                     if (id_start != NULL) {
@@ -3203,17 +3129,16 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                     vlen = strlen(vector);
                 }
 
-                g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
-                              symbol->name, identifier, vector, writer);
                 process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
+            }
+            if (self->in_dumpvars_block) {
+                self->current_time = original_time;
             }
             break;
         default:
             g_set_error(error, GW_DUMP_FILE_ERROR, GW_DUMP_FILE_ERROR_UNKNOWN,
                        "Unknown value type: %c", value_char);
     }
-
-
 }
 
 

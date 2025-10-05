@@ -3478,9 +3478,11 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
                         // Invalidate harray since it's now out of sync with the history list
-                        if (node->harray != NULL) {
-                            g_free(node->harray);
-                            node->harray = NULL;
+                        // Store old pointer, set to NULL first, then free to avoid use-after-free
+                        GwHistEnt **old_harray = node->harray;
+                        node->harray = NULL;
+                        if (old_harray != NULL) {
+                            g_free(old_harray);
                         }
                     }
                 } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
@@ -3534,9 +3536,11 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
                         // Invalidate harray since it's now out of sync with the history list
-                        if (node->harray != NULL) {
-                            g_free(node->harray);
-                            node->harray = NULL;
+                        // Store old pointer, set to NULL first, then free to avoid use-after-free
+                        GwHistEnt **old_harray = node->harray;
+                        node->harray = NULL;
+                        if (old_harray != NULL) {
+                            g_free(old_harray);
                         }
                     }
                 } else if (vlist_type == 'R' || vlist_type == 'S') {
@@ -3564,9 +3568,11 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
                         // Invalidate harray since it's now out of sync with the history list
-                        if (node->harray != NULL) {
-                            g_free(node->harray);
-                            node->harray = NULL;
+                        // Store old pointer, set to NULL first, then free to avoid use-after-free
+                        GwHistEnt **old_harray = node->harray;
+                        node->harray = NULL;
+                        if (old_harray != NULL) {
+                            g_free(old_harray);
                         }
                     }
                 } else {

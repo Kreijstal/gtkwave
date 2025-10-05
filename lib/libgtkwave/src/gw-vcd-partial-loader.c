@@ -3450,6 +3450,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 }
 
                 // Process value changes
+                gboolean harray_needs_invalidation = FALSE;
                 if (vlist_type == '0') {
                     // Scalar value processing
                     static const GwBit EXTRA_VALUES[] = { GW_BIT_X, GW_BIT_Z, GW_BIT_H, GW_BIT_U, GW_BIT_W, GW_BIT_L, GW_BIT_DASH, GW_BIT_X };
@@ -3478,11 +3479,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        // Invalidate harray so it gets rebuilt with the new numhist
-                        if (node->harray) {
-                            g_free(node->harray);
-                            node->harray = NULL;
-                        }
+                        harray_needs_invalidation = TRUE;
                     }
                 } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
                     // Vector, Real, and String value processing - all use string format
@@ -3534,11 +3531,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        // Invalidate harray so it gets rebuilt with the new numhist
-                        if (node->harray) {
-                            g_free(node->harray);
-                            node->harray = NULL;
-                        }
+                        harray_needs_invalidation = TRUE;
                     }
                 } else if (vlist_type == 'R' || vlist_type == 'S') {
                     // Real/String value processing - use gw_vlist_reader_read_string()
@@ -3564,14 +3557,16 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        // Invalidate harray so it gets rebuilt with the new numhist
-                        if (node->harray) {
-                            g_free(node->harray);
-                            node->harray = NULL;
-                        }
+                        harray_needs_invalidation = TRUE;
                     }
                 } else {
                     g_test_message("JIT IMPORT: Unsupported vlist type '%c' for symbol %s", vlist_type, symbol_id);
+                }
+
+                // Invalidate harray once after adding all new entries for this signal
+                // This ensures bsearch_node will rebuild it with the correct size on next access
+                if (harray_needs_invalidation && node->harray) {
+                    node->harray = NULL;
                 }
 
                 // Store both the import position and vlist type for future reads

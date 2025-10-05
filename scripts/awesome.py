@@ -2,109 +2,144 @@
 
 import pyatspi
 import time
+from typing import TypeVar, Generic, Callable, Optional, Any
+from dataclasses import dataclass
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 
-def find_gtkwave_app():
-    """Fast GTKWave application detection - only checks recent applications."""
+@dataclass
+class Result(Generic[T]):
+    """A Result monad representing success or failure."""
+
+    value: Optional[T] = None
+    error: Optional[str] = None
+
+    @property
+    def is_success(self) -> bool:
+        return self.error is None
+
+    def bind(self, func: Callable[[T], "Result[U]"]) -> "Result[U]":
+        """Monadic bind operation (flatMap)."""
+        if not self.is_success:
+            return Result(error=self.error)
+        try:
+            return func(self.value)
+        except Exception as e:
+            return Result(error=f"{func.__name__} failed: {e}")
+
+    def map(self, func: Callable[[T], U]) -> "Result[U]":
+        """Map operation for side effects."""
+        if not self.is_success:
+            return Result(error=self.error)
+        try:
+            func(self.value)
+            return Result(value=self.value)
+        except Exception as e:
+            return Result(error=f"{func.__name__} failed: {e}")
+
+    @staticmethod
+    def success(value: T) -> "Result[T]":
+        return Result(value=value)
+
+    @staticmethod
+    def failure(error: str) -> "Result[Any]":
+        return Result(error=error)
+
+
+# Core discovery functions
+def find_gtkwave_app() -> Result[Any]:
+    """Fast GTKWave application detection."""
     try:
         desktop = pyatspi.Registry.getDesktop(0)
         app_count = desktop.childCount
-
-        # GTKWave typically appears as one of the last applications
-        # Only check the most recent 15 applications to avoid AT-SPI delays
         start_idx = max(0, app_count - 15)
 
         for i in range(start_idx, app_count):
             app = desktop.getChildAtIndex(i)
             name = getattr(app, "name", "") or ""
             if "gtkwave" in name.lower():
-                return app
-    except Exception:
-        pass
+                print("Found GTKWave application")
+                return Result.success(app)
 
-    return None
-
-
-def find_mysim_cell(acc, depth=0, max_depth=20):
-    """Recursively find the 'mysim' table cell."""
-    if depth > max_depth:
-        return None
-
-    try:
-        role = acc.getRoleName() if hasattr(acc, "getRoleName") else ""
-        name = getattr(acc, "name", "") or ""
-
-        if "table cell" in role.lower() and "mysim" in name.lower():
-            return acc
-
-        for i in range(acc.childCount):
-            child = acc.getChildAtIndex(i)
-            result = find_mysim_cell(child, depth + 1, max_depth)
-            if result:
-                return result
-    except Exception:
-        pass
-
-    return None
-
-
-def find_sine_wave_cell(acc, depth=0, max_depth=50):
-    """Recursively find the 'sine_wave' table cell."""
-    if depth > max_depth:
-        return None
-
-    try:
-        role = acc.getRoleName() if hasattr(acc, "getRoleName") else ""
-        name = getattr(acc, "name", "") or ""
-
-        if "table cell" in role.lower() and "sine_wave" in name.lower():
-            print(f"Found sine_wave cell: '{name}', role: {role}")
-            return acc
-
-        for i in range(acc.childCount):
-            child = acc.getChildAtIndex(i)
-            result = find_sine_wave_cell(child, depth + 1, max_depth)
-            if result:
-                return result
-    except Exception:
-        pass
-
-    return None
-
-
-def find_menu_item(acc, menu_name, item_name, depth=0, max_depth=20):
-    """Recursively find a specific menu item."""
-    if depth > max_depth:
-        return None
-
-    try:
-        role = acc.getRoleName() if hasattr(acc, "getRoleName") else ""
-        name = getattr(acc, "name", "") or ""
-
-        # Look for menu items with the target name
-        if "menu item" in role.lower() and item_name.lower() in name.lower():
-            # Check if it's in the right menu by looking at parent
-            parent = acc.parent
-            if parent:
-                parent_name = getattr(parent, "name", "") or ""
-                if menu_name.lower() in parent_name.lower():
-                    print(f"Found menu item: '{name}' in menu '{parent_name}'")
-                    return acc
-
-        # Recursively search children
-        for i in range(acc.childCount):
-            child = acc.getChildAtIndex(i)
-            result = find_menu_item(child, menu_name, item_name, depth + 1, max_depth)
-            if result:
-                return result
+        return Result.failure("GTKWave not found")
     except Exception as e:
-        pass
-
-    return None
+        return Result.failure(f"Error finding GTKWave: {e}")
 
 
-def focus_window(app):
-    """Focus and raise the GTKWave window using wmctrl."""
+def find_element_by_role_and_name(
+    acc, role_name: str, search_name: str, max_depth: int = 20
+) -> Optional[Any]:
+    """Generic recursive element finder."""
+
+    def search(node, depth=0):
+        if depth > max_depth:
+            return None
+
+        try:
+            role = node.getRoleName() if hasattr(node, "getRoleName") else ""
+            name = getattr(node, "name", "") or ""
+
+            if role_name in role.lower() and search_name.lower() in name.lower():
+                return node
+
+            for i in range(node.childCount):
+                child = node.getChildAtIndex(i)
+                result = search(child, depth + 1)
+                if result:
+                    return result
+        except Exception:
+            pass
+
+        return None
+
+    return search(acc)
+
+
+def find_mysim_cell(app) -> Result[Any]:
+    """Find the mysim table cell."""
+    cell = find_element_by_role_and_name(app, "table cell", "mysim")
+    if cell:
+        print(f"Found 'mysim' cell: {cell.name}")
+        return Result.success((app, cell))
+    return Result.failure("'mysim' not found")
+
+
+def find_menu_item(app, menu_name: str, item_name: str) -> Optional[Any]:
+    """Find a specific menu item."""
+
+    def search(node, depth=0, max_depth=20):
+        if depth > max_depth:
+            return None
+
+        try:
+            role = node.getRoleName() if hasattr(node, "getRoleName") else ""
+            name = getattr(node, "name", "") or ""
+
+            if "menu item" in role.lower() and item_name.lower() in name.lower():
+                parent = node.parent
+                if parent:
+                    parent_name = getattr(parent, "name", "") or ""
+                    if menu_name.lower() in parent_name.lower():
+                        return node
+
+            for i in range(node.childCount):
+                child = node.getChildAtIndex(i)
+                result = search(child, depth + 1)
+                if result:
+                    return result
+        except Exception:
+            pass
+
+        return None
+
+    return search(app)
+
+
+# Action functions
+def focus_window(app) -> bool:
+    """Focus and raise the GTKWave window."""
     try:
         import subprocess
 
@@ -112,232 +147,154 @@ def focus_window(app):
             child = app.getChildAtIndex(i)
             if child.getRoleName() == "frame":
                 window_name = child.name
-                print(f"Window title: {window_name}")
-
                 result = subprocess.run(
                     ["wmctrl", "-a", window_name], capture_output=True, text=True
                 )
 
                 if result.returncode == 0:
-                    print("Raised GTKWave window to front")
                     time.sleep(0.1)
                     return True
-                else:
-                    result = subprocess.run(
-                        ["xdotool", "search", "--name", window_name, "windowactivate"],
-                        capture_output=True,
-                        text=True,
-                    )
-                    if result.returncode == 0:
-                        print("Raised window using xdotool")
-                        time.sleep(0.1)
-                        return True
 
-    except Exception as e:
-        print(f"Could not focus window: {e}")
+                result = subprocess.run(
+                    ["xdotool", "search", "--name", window_name, "windowactivate"],
+                    capture_output=True,
+                    text=True,
+                )
 
-    print("WARNING: Could not raise window, click may fail!")
+                if result.returncode == 0:
+                    time.sleep(0.1)
+                    return True
+    except Exception:
+        pass
+
     return False
 
 
-def click_mysim(cell, app):
-    """Click the mysim cell to expand hierarchy."""
+def click_element(app_cell_tuple) -> Result[Any]:
+    """Click an element at its center."""
+    app, cell = app_cell_tuple
     try:
         focus_window(app)
-
         component = cell.queryComponent()
         extents = component.getExtents(pyatspi.DESKTOP_COORDS)
 
         x = extents.x + extents.width // 2
         y = extents.y + extents.height // 2
 
-        print(f"Clicking mysim at: ({x}, {y})")
+        print(f"Clicking {cell.name} at: ({x}, {y})")
         pyatspi.Registry.generateMouseEvent(x, y, "b1c")
 
-        return True
-
+        time.sleep(0.1)
+        return Result.success(app)
     except Exception as e:
-        print(f"Error clicking mysim: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        return Result.failure(f"Click failed: {e}")
 
 
-def double_click_sine_wave(cell, app):
-    """Double-click the sine_wave cell."""
-    try:
-        focus_window(app)
-
-        component = cell.queryComponent()
-        extents = component.getExtents(pyatspi.DESKTOP_COORDS)
-
-        x = extents.x + extents.width // 2
-        y = extents.y + extents.height // 2
-
-        print(f"Double-clicking sine_wave at: ({x}, {y})")
-
-        # Generate double click: press-release, then press-release quickly
-        pyatspi.Registry.generateMouseEvent(x, y, "b1c")
-        time.sleep(0.1)  # Short delay between clicks
-        pyatspi.Registry.generateMouseEvent(x, y, "b1c")
-
-        return True
-
-    except Exception as e:
-        print(f"Error double-clicking sine_wave: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
-
-
-def click_menu_item(menu_item, app):
-    """Click a menu item using its action."""
-    try:
-        focus_window(app)
-        time.sleep(0.1)  # Wait for menu to be ready
-
-        # Use the action interface to click the menu item
-        action = menu_item.queryAction()
-        if action and action.nActions > 0:
-            print(f"Clicking menu item using action 0")
-            success = action.doAction(0)
-            if success:
-                print("Successfully clicked menu item")
-                return True
-            else:
-                print("Action failed, trying mouse click")
-
-        # Fallback to mouse click
-        component = menu_item.queryComponent()
-        extents = component.getExtents(pyatspi.DESKTOP_COORDS)
-
-        x = extents.x + extents.width // 2
-        y = extents.y + extents.height // 2
-
-        print(f"Clicking menu item at: ({x}, {y})")
-        pyatspi.Registry.generateMouseEvent(x, y, "b1c")
-
-        return True
-
-    except Exception as e:
-        print(f"Error clicking menu item: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
-
-
-def wait_for_sine_wave(app, timeout=10):
+def wait_for_sine_wave(app) -> Result[Any]:
     """Wait for sine_wave to appear after expanding mysim."""
     print("Waiting for sine_wave to appear...")
     start_time = time.time()
+    timeout = 10
 
     while time.time() - start_time < timeout:
-        sine_wave_cell = find_sine_wave_cell(app)
-        if sine_wave_cell:
-            return sine_wave_cell
+        cell = find_element_by_role_and_name(
+            app, "table cell", "sine_wave", max_depth=50
+        )
+        if cell:
+            print("Found 'sine_wave' after expanding mysim")
+            return Result.success((app, cell))
         time.sleep(0.1)
 
-    return None
+    return Result.failure("'sine_wave' not found after timeout")
+
+
+def double_click_element(app_cell_tuple) -> Result[Any]:
+    """Double-click an element."""
+    app, cell = app_cell_tuple
+    try:
+        focus_window(app)
+        component = cell.queryComponent()
+        extents = component.getExtents(pyatspi.DESKTOP_COORDS)
+
+        x = extents.x + extents.width // 2
+        y = extents.y + extents.height // 2
+
+        print(f"Double-clicking {cell.name} at: ({x}, {y})")
+        pyatspi.Registry.generateMouseEvent(x, y, "b1c")
+        time.sleep(0.1)
+        pyatspi.Registry.generateMouseEvent(x, y, "b1c")
+
+        time.sleep(0.1)
+        return Result.success(app)
+    except Exception as e:
+        return Result.failure(f"Double-click failed: {e}")
+
+
+def click_menu_action(menu_name: str, item_name: str):
+    """Return a function that clicks a specific menu item."""
+
+    def click_menu(app) -> Result[Any]:
+        menu_item = find_menu_item(app, menu_name, item_name)
+        if not menu_item:
+            return Result.failure(f"'{item_name}' menu item not found")
+
+        print(f"Found '{item_name}' menu item")
+
+        try:
+            focus_window(app)
+            time.sleep(0.1)
+
+            action = menu_item.queryAction()
+            if action and action.nActions > 0:
+                action.doAction(0)
+            else:
+                component = menu_item.queryComponent()
+                extents = component.getExtents(pyatspi.DESKTOP_COORDS)
+                x = extents.x + extents.width // 2
+                y = extents.y + extents.height // 2
+                pyatspi.Registry.generateMouseEvent(x, y, "b1c")
+
+            print(f"Successfully clicked '{item_name}'")
+            time.sleep(0.1)
+            return Result.success(app)
+        except Exception as e:
+            return Result.failure(f"Failed to click '{item_name}': {e}")
+
+    return click_menu
+
+
+def wait_for_gtkwave(timeout: int = 30) -> Result[Any]:
+    """Wait for GTKWave to appear."""
+    print("Waiting for GTKWave application...")
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        result = find_gtkwave_app()
+        if result.is_success:
+            return result
+        time.sleep(0.1)
+
+    return Result.failure(f"GTKWave not found within {timeout} seconds")
 
 
 def main():
-    timeout = 30
-    start_time = time.time()
+    # Monadic pipeline: chain all operations together
+    result = (
+        wait_for_gtkwave()
+        .bind(find_mysim_cell)
+        .bind(click_element)
+        .bind(wait_for_sine_wave)
+        .bind(double_click_element)
+        .bind(click_menu_action("Edit", "Highlight All"))
+        .bind(click_menu_action("Edit", "Toggle Group Open|Close"))
+    )
 
-    print("Waiting for GTKWave application...")
-
-    while time.time() - start_time < timeout:
-        app = find_gtkwave_app()
-
-        if app:
-            print("Found GTKWave application")
-
-            # Step 1: Find and click mysim to expand hierarchy
-            mysim_cell = find_mysim_cell(app)
-
-            if mysim_cell:
-                print(f"Found 'mysim' cell: {mysim_cell.name}")
-
-                if click_mysim(mysim_cell, app):
-                    print("Success! Clicked 'mysim' to expand hierarchy")
-
-                    # Step 2: Wait for sine_wave to appear
-                    time.sleep(0.1)  # Brief pause for hierarchy to expand
-                    sine_wave_cell = wait_for_sine_wave(app)
-
-                    if sine_wave_cell:
-                        print("Found 'sine_wave' after expanding mysim")
-
-                        # Step 3: Double-click sine_wave
-                        if double_click_sine_wave(sine_wave_cell, app):
-                            print("Success! Double-clicked 'sine_wave'")
-                            time.sleep(0.1)  # Wait for signal to be added
-
-                            # Step 4: Find and click "Highlight All" in Edit menu
-                            highlight_all_item = find_menu_item(
-                                app, "Edit", "Highlight All"
-                            )
-                            if highlight_all_item:
-                                print("Found 'Highlight All' menu item")
-                                if click_menu_item(highlight_all_item, app):
-                                    print("Success! Clicked 'Highlight All'")
-                                    time.sleep(0.1)
-
-                                    # Step 5: Find and click "Toggle Group Open|Close" in Edit menu
-                                    toggle_group_item = find_menu_item(
-                                        app, "Edit", "Toggle Group Open|Close"
-                                    )
-                                    if toggle_group_item:
-                                        print(
-                                            "Found 'Toggle Group Open|Close' menu item"
-                                        )
-                                        if click_menu_item(toggle_group_item, app):
-                                            print(
-                                                "Success! Clicked 'Toggle Group Open|Close'"
-                                            )
-                                            return 0
-                                        else:
-                                            print(
-                                                "Failed to click 'Toggle Group Open|Close'"
-                                            )
-                                            return 1
-                                    else:
-                                        print(
-                                            "'Toggle Group Open|Close' menu item not found"
-                                        )
-                                        return 1
-                                else:
-                                    print("Failed to click 'Highlight All'")
-                                    return 1
-                            else:
-                                print("'Highlight All' menu item not found")
-                                return 1
-                        else:
-                            print("Failed to double-click 'sine_wave'")
-                            return 1
-                    else:
-                        print("'sine_wave' not found after expanding mysim")
-                        return 1
-                else:
-                    print("Could not click 'mysim'")
-                    return 1
-            else:
-                print("'mysim' not found yet, waiting...")
-        else:
-            print("GTKWave not found yet, waiting...")
-
-        time.sleep(0.1)
-
-    print(f"Timeout: GTKWave or required elements not found within {timeout} seconds")
-    print("This could be due to:")
-    print("  - GTKWave not starting properly")
-    print("  - AT-SPI accessibility not working")
-    print("  - GTKWave window not being detected by accessibility APIs")
-    print("  - AT-SPI being too slow (takes ~16s to enumerate all apps)")
-    return 1
+    if result.is_success:
+        print("✓ All operations completed successfully!")
+        return 0
+    else:
+        print(f"✗ Operation failed: {result.error}")
+        return 1
 
 
 if __name__ == "__main__":

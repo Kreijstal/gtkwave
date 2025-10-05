@@ -101,112 +101,118 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
 
-    // Special handling for expanded child nodes: rebuild history from parent dynamically
+    // Special handling for expanded child nodes: build history from parent dynamically
     // This ensures child nodes stay synchronized with streaming updates to the parent
+    // Build when harray is NULL, or when parent's harray is NULL (indicating parent data changed)
     if (n->expansion && n->expansion->parent) {
         GwNode *parent = n->expansion->parent;
         int bit_index = n->expansion->parentbit;
         
-        DEBUG(printf("bsearch_node: Rebuilding expanded child '%s' (bit %d) from parent '%s' (numhist=%d)\n",
-                     n->nname, bit_index, parent->nname, parent->numhist));
-        
-        // Free existing child history if any (except head)
-        if (n->harray) {
+        // If parent's harray is NULL, it means parent has new data and needs rebuilding
+        // In this case, invalidate child's harray too so we rebuild from fresh parent data
+        if (parent->harray == NULL && n->harray != NULL) {
+            DEBUG(printf("bsearch_node: Invalidating child '%s' harray (parent changed)\n", n->nname));
+            // Free the harray pointer array
             g_free(n->harray);
             n->harray = NULL;
-        }
-        GwHistEnt *h_next = n->head.next;
-        while (h_next) {
-            GwHistEnt *h_temp = h_next->next;
-            g_free(h_next);
-            h_next = h_temp;
-        }
-        n->head.next = NULL;
-        
-        // Ensure parent has its harray built
-        if (parent->harray == NULL) {
-            // Recursively call bsearch_node on parent to build its harray
-            bsearch_node(parent, key);
-        }
-        
-        if (parent->harray != NULL && parent->numhist > 0) {
-            // Build child node's history from parent's vector data
-            GwHistEnt *child_curr = &(n->head);
-            n->head.time = -1;
-            n->head.v.h_val = GW_BIT_X;
+            // Free the history entries in the linked list (except head which is embedded)
+            GwHistEnt *h_next = n->head.next;
+            while (h_next) {
+                GwHistEnt *h_temp = h_next->next;
+                g_free(h_next);
+                h_next = h_temp;
+            }
             n->head.next = NULL;
-            child_curr = &(n->head);
+        }
+        
+        if (n->harray == NULL) {
+            DEBUG(printf("bsearch_node: Building expanded child '%s' (bit %d) from parent '%s'\n",
+                         n->nname, bit_index, parent->nname));
             
-            GwBit last_val = GW_BIT_X;
-            int child_histcount = 1; // Start with head
+            // Ensure parent has its harray built
+            if (parent->harray == NULL) {
+                // Recursively call bsearch_node on parent to build its harray
+                bsearch_node(parent, key);
+            }
             
-            for (int i = 0; i < parent->numhist; i++) {
-                GwHistEnt *parent_h = parent->harray[i];
+            if (parent->harray != NULL && parent->numhist > 0) {
+                // Build child node's history from parent's vector data
+                n->head.time = -1;
+                n->head.v.h_val = GW_BIT_X;
+                n->head.next = NULL;
                 
-                // Skip special time markers and entries without vector data
-                if (parent_h->time < 0 || parent_h->time >= GW_TIME_MAX - 1 || 
-                    !parent_h->v.h_vector) {
-                    continue;
-                }
+                GwHistEnt *child_curr = &(n->head);
+                GwBit last_val = GW_BIT_X;
+                int child_histcount = 1; // Start with head
                 
-                // Extract bit value from parent's vector
-                unsigned char raw_val = parent_h->v.h_vector[bit_index];
-                GwBit val;
-                switch (raw_val) {
-                    case '0': val = GW_BIT_0; break;
-                    case '1': val = GW_BIT_1; break;
-                    case 'x':
-                    case 'X': val = GW_BIT_X; break;
-                    case 'z':
-                    case 'Z': val = GW_BIT_Z; break;
-                    case 'h':
-                    case 'H': val = GW_BIT_H; break;
-                    case 'l':
-                    case 'L': val = GW_BIT_L; break;
-                    case 'u':
-                    case 'U': val = GW_BIT_U; break;
-                    case 'w':
-                    case 'W': val = GW_BIT_W; break;
-                    case '-': val = GW_BIT_DASH; break;
-                    default: val = (GwBit)raw_val; break;
-                }
-                
-                // Only create new history entry if value changed
-                if (val != last_val) {
-                    GwHistEnt *new_h = g_new0(GwHistEnt, 1);
-                    new_h->time = parent_h->time;
-                    new_h->v.h_val = val;
-                    new_h->next = NULL;
+                for (int i = 0; i < parent->numhist; i++) {
+                    GwHistEnt *parent_h = parent->harray[i];
                     
-                    child_curr->next = new_h;
-                    child_curr = new_h;
-                    last_val = val;
-                    child_histcount++;
+                    // Skip special time markers and entries without vector data
+                    if (parent_h->time < 0 || parent_h->time >= GW_TIME_MAX - 1 || 
+                        !parent_h->v.h_vector) {
+                        continue;
+                    }
+                    
+                    // Extract bit value from parent's vector
+                    unsigned char raw_val = parent_h->v.h_vector[bit_index];
+                    GwBit val;
+                    switch (raw_val) {
+                        case '0': val = GW_BIT_0; break;
+                        case '1': val = GW_BIT_1; break;
+                        case 'x':
+                        case 'X': val = GW_BIT_X; break;
+                        case 'z':
+                        case 'Z': val = GW_BIT_Z; break;
+                        case 'h':
+                        case 'H': val = GW_BIT_H; break;
+                        case 'l':
+                        case 'L': val = GW_BIT_L; break;
+                        case 'u':
+                        case 'U': val = GW_BIT_U; break;
+                        case 'w':
+                        case 'W': val = GW_BIT_W; break;
+                        case '-': val = GW_BIT_DASH; break;
+                        default: val = (GwBit)raw_val; break;
+                    }
+                    
+                    // Only create new history entry if value changed
+                    if (val != last_val) {
+                        GwHistEnt *new_h = g_new0(GwHistEnt, 1);
+                        new_h->time = parent_h->time;
+                        new_h->v.h_val = val;
+                        new_h->next = NULL;
+                        
+                        child_curr->next = new_h;
+                        child_curr = new_h;
+                        last_val = val;
+                        child_histcount++;
+                    }
                 }
+                
+                n->numhist = child_histcount;
+                n->curr = child_curr;
+                
+                DEBUG(printf("  Built %d history entries for child from parent's %d entries\n",
+                             child_histcount, parent->numhist));
+                
+                // Build harray for the child
+                GwHistEnt **harray = g_new(GwHistEnt *, child_histcount);
+                n->harray = harray;
+                
+                GwHistEnt *histpnt = &(n->head);
+                for (int i = 0; i < child_histcount; i++) {
+                    *harray = histpnt;
+                    harray++;
+                    histpnt = histpnt->next;
+                }
+            } else {
+                // Parent has no history, just use the head
+                n->numhist = 1;
+                GwHistEnt **harray = g_new(GwHistEnt *, 1);
+                n->harray = harray;
+                harray[0] = &(n->head);
             }
-            
-            n->numhist = child_histcount;
-            n->curr = child_curr;
-            
-            DEBUG(printf("  Built %d history entries for child from parent's %d entries\n",
-                         child_histcount, parent->numhist));
-            
-            // Build harray for the child
-            GwHistEnt **harray = g_new(GwHistEnt *, child_histcount);
-            n->harray = harray;
-            
-            GwHistEnt *histpnt = &(n->head);
-            for (int i = 0; i < child_histcount; i++) {
-                *harray = histpnt;
-                harray++;
-                histpnt = histpnt->next;
-            }
-        } else {
-            // Parent has no history, just use the head
-            n->numhist = 1;
-            GwHistEnt **harray = g_new(GwHistEnt *, 1);
-            n->harray = harray;
-            harray[0] = &(n->head);
         }
     }
     // Rebuild harray if it's NULL (e.g., after streaming VCD data added new history entries)

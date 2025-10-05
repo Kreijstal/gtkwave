@@ -109,7 +109,7 @@ def focus_window(app):
 
                 if result.returncode == 0:
                     print("Raised GTKWave window to front")
-                    time.sleep(0.3)
+                    time.sleep(0.1)
                     return True
                 else:
                     result = subprocess.run(
@@ -119,7 +119,7 @@ def focus_window(app):
                     )
                     if result.returncode == 0:
                         print("Raised window using xdotool")
-                        time.sleep(0.3)
+                        time.sleep(0.1)
                         return True
 
     except Exception as e:
@@ -185,7 +185,7 @@ def click_menu_item(menu_item, app):
     """Click a menu item using its action."""
     try:
         focus_window(app)
-        time.sleep(0.5)  # Wait for menu to be ready
+        time.sleep(0.1)  # Wait for menu to be ready
 
         # Use the action interface to click the menu item
         action = menu_item.queryAction()
@@ -227,7 +227,7 @@ def wait_for_sine_wave(app, timeout=10):
         sine_wave_cell = find_sine_wave_cell(app)
         if sine_wave_cell:
             return sine_wave_cell
-        time.sleep(0.5)
+        time.sleep(0.1)
 
     return None
 
@@ -239,7 +239,7 @@ def main():
     print("Waiting for GTKWave application...")
 
     # Initial delay to allow GTKWave to start up and become visible to AT-SPI
-    initial_delay = 5
+    initial_delay = 2
     print(f"Waiting {initial_delay} seconds for GTKWave to start up...")
     time.sleep(initial_delay)
 
@@ -259,7 +259,7 @@ def main():
                     print("Success! Clicked 'mysim' to expand hierarchy")
 
                     # Step 2: Wait for sine_wave to appear
-                    time.sleep(1)  # Brief pause for hierarchy to expand
+                    time.sleep(0.1)  # Brief pause for hierarchy to expand
                     sine_wave_cell = wait_for_sine_wave(app)
 
                     if sine_wave_cell:
@@ -268,7 +268,7 @@ def main():
                         # Step 3: Double-click sine_wave
                         if double_click_sine_wave(sine_wave_cell, app):
                             print("Success! Double-clicked 'sine_wave'")
-                            time.sleep(1)  # Wait for signal to be added
+                            time.sleep(0.1)  # Wait for signal to be added
 
                             # Step 4: Find and click "Highlight All" in Edit menu
                             highlight_all_item = find_menu_item(
@@ -278,7 +278,7 @@ def main():
                                 print("Found 'Highlight All' menu item")
                                 if click_menu_item(highlight_all_item, app):
                                     print("Success! Clicked 'Highlight All'")
-                                    time.sleep(0.5)
+                                    time.sleep(0.1)
 
                                     # Step 5: Find and click "Toggle Group Open|Close" in Edit menu
                                     toggle_group_item = find_menu_item(
@@ -323,7 +323,7 @@ def main():
         else:
             print("GTKWave not found yet, waiting...")
 
-        time.sleep(0.5)
+        time.sleep(0.1)
 
     print(f"Timeout: GTKWave or required elements not found within {timeout} seconds")
     return 1

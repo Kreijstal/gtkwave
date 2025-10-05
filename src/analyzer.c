@@ -617,11 +617,8 @@ void FreeTrace(GwTrace *t)
 {
     GLOBALS->traces.dirty = 1;
 
-    /* Reference counting replaces the old deferred free mechanism */
-    if (t->refcount > 0) {
-        /* Still has references, don't free yet */
-        return;
-    }
+    /* Reference counting replaces the old deferred free mechanism - no need to check refcount here
+     * as ReleaseTrace already ensures refcount is 0 before calling this function */
 
     if (t->vector) {
         GwBitVector *bv;
@@ -676,9 +673,13 @@ void FreeTrace(GwTrace *t)
             if (t->n.nd->expansion) {
                 DeleteNode(t->n.nd);
             } else if (t->n.nd->expand_info) {
-                // This is a parent vector that has been expanded, clean up the children
-                gw_expand_info_free_deep(t->n.nd->expand_info);
-                t->n.nd->expand_info = NULL;
+                // NOTE: Removed expand_info cleanup here as the node is owned by the dump file
+                // and may still be accessed by the VCD loader. The expand_info should only be
+                // freed when the dump file is closed, not when individual traces are freed.
+                // This was causing crashes in the VCD partial loader.
+                // TODO: Investigate proper lifecycle management for expand_info
+                /* gw_expand_info_free_deep(t->n.nd->expand_info); */
+                /* t->n.nd->expand_info = NULL; */
             }
         }
     }

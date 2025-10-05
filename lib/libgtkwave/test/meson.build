@@ -13,6 +13,7 @@ libgtkwave_tests = [
     'test-gw-node',
     'test-gw-node-expand-crash',
     'test-gw-node-expand-harray-invalidation',
+    'test-gw-node-re-expansion',
     'test_mixed_history_crash',
     'test-gw-project',
     'test-gw-stems',

@@ -722,11 +722,16 @@ def stream_to_gtkwave_integrated():
                 )
                 time.sleep(0.05)
             else:
-                print(f"\n\nFinished streaming. Press Enter to close.")
-                try:
-                    input()
-                except Exception:
-                    pass
+                # In automated test mode (CI environment), don't wait for input
+                if os.environ.get('CI') or os.environ.get('AUTOMATED_TEST'):
+                    print(f"\n\nFinished streaming in automated mode. Closing GTKWave...")
+                    time.sleep(1)  # Give a moment for final UI updates
+                else:
+                    print(f"\n\nFinished streaming. Press Enter to close.")
+                    try:
+                        input()
+                    except Exception:
+                        pass
 
     except FileNotFoundError as e:
         print(f"\n--- ERROR: Command not found: {e.filename}. ---")
@@ -776,7 +781,12 @@ def stream_to_gtkwave_integrated():
                 pass
 
             if gtkwave_proc.returncode is not None:
-                if gtkwave_proc.returncode < 0 or gtkwave_proc.returncode > 0:
+                # In automated mode, GTKWave being terminated by SIGTERM (-15) is expected
+                # and should not be treated as a failure
+                is_automated = os.environ.get('CI') or os.environ.get('AUTOMATED_TEST')
+                is_sigterm = gtkwave_proc.returncode == -15
+                
+                if gtkwave_proc.returncode != 0 and not (is_automated and is_sigterm):
                     _report_gtkwave_exit(gtkwave_proc)
                     overall_success = False
 

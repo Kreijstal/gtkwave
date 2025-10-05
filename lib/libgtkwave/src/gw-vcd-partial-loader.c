@@ -971,14 +971,134 @@ static void vcd_partial_parse_valuechange_scalar(GwVcdPartialLoader *self)
     }
 }
 
-static void process_binary_stream(GwVcdPartialLoader *self, GwVlistWriter *writer, const gchar *vector, gint vlen, struct vcdsymbol *v, unsigned int time_delta, GError **error)
+// Helper function to create and append a history entry immediately to a node
+static void add_scalar_hist_entry(GwNode *node, GwTime time, GwBit bit_val)
+{
+    GwHistEnt *hent = g_new0(GwHistEnt, 1);
+    hent->time = time;
+    hent->v.h_val = bit_val;
+    
+    // Append to node's history list
+    if (node->curr != NULL) {
+        node->curr->next = hent;
+        node->curr = hent;
+    } else {
+        // First entry - initialize the list
+        node->head.next = hent;
+        node->curr = hent;
+    }
+    node->numhist++;
+    
+    // Invalidate harray cache since we've added a new entry
+    GwHistEnt **old_harray = node->harray;
+    node->harray = NULL;
+    if (old_harray != NULL) {
+        g_free(old_harray);
+    }
+}
+
+// Helper function to create and append a vector history entry immediately to a node
+static void add_vector_hist_entry(GwNode *node, GwTime time, const gchar *value_str, gint size)
+{
+    GwHistEnt *hent = g_new0(GwHistEnt, 1);
+    hent->time = time;
+    
+    // Allocate and populate h_vector
+    hent->v.h_vector = g_malloc(size);
+    gint val_len = strlen(value_str);
+    gint copy_len = MIN(val_len, size);
+    gint offset = (val_len > size) ? (val_len - size) : 0;
+    gint pad_len = size - copy_len;
+    
+    // Pad with '0' on the left (MSB)
+    for (gint i = 0; i < pad_len; i++) {
+        hent->v.h_vector[i] = GW_BIT_0;
+    }
+    
+    // Copy the actual value
+    for (gint i = 0; i < copy_len; i++) {
+        hent->v.h_vector[pad_len + i] = gw_bit_from_char(value_str[i + offset]);
+    }
+    
+    // Append to node's history list
+    if (node->curr != NULL) {
+        node->curr->next = hent;
+        node->curr = hent;
+    } else {
+        // First entry - initialize the list
+        node->head.next = hent;
+        node->curr = hent;
+    }
+    node->numhist++;
+    
+    // Invalidate harray cache since we've added a new entry
+    GwHistEnt **old_harray = node->harray;
+    node->harray = NULL;
+    if (old_harray != NULL) {
+        g_free(old_harray);
+    }
+}
+
+static void process_binary_stream(GwVcdPartialLoader *self, GwVlistWriter *writer, const gchar *vector, gint vlen, struct vcdsymbol *v, unsigned int time_delta, GwTime current_time, GError **error)
 {
     g_assert(v != NULL);
     g_assert(writer != NULL);
     g_assert(error != NULL && *error == NULL);
 
+    // Create history entry immediately for the node
+    GwNode *node = v->narray[0];
+    
+    // Determine if this is a vector or real/string type
+    if (v->vartype == V_REAL) {
+        // Real value - create entry with h_double
+        GwHistEnt *hent = g_new0(GwHistEnt, 1);
+        hent->time = current_time;
+        hent->flags = GW_HIST_ENT_FLAG_REAL;
+        hent->v.h_double = g_ascii_strtod(vector, NULL);
+        
+        if (node->curr != NULL) {
+            node->curr->next = hent;
+            node->curr = hent;
+        } else {
+            node->head.next = hent;
+            node->curr = hent;
+        }
+        node->numhist++;
+        
+        // Invalidate harray cache
+        GwHistEnt **old_harray = node->harray;
+        node->harray = NULL;
+        if (old_harray != NULL) {
+            g_free(old_harray);
+        }
+    } else if (v->vartype == V_STRINGTYPE) {
+        // String value
+        GwHistEnt *hent = g_new0(GwHistEnt, 1);
+        hent->time = current_time;
+        hent->flags = GW_HIST_ENT_FLAG_REAL | GW_HIST_ENT_FLAG_STRING;
+        hent->v.h_vector = g_strdup(vector);
+        
+        if (node->curr != NULL) {
+            node->curr->next = hent;
+            node->curr = hent;
+        } else {
+            node->head.next = hent;
+            node->curr = hent;
+        }
+        node->numhist++;
+        
+        // Invalidate harray cache
+        GwHistEnt **old_harray = node->harray;
+        node->harray = NULL;
+        if (old_harray != NULL) {
+            g_free(old_harray);
+        }
+    } else {
+        // Vector value - use the helper function
+        add_vector_hist_entry(node, current_time, vector, v->size);
+    }
 
-    // The writer is now created upfront and passed in. We just need to write the value.
+    // Still write to vlist for debugging/compatibility
     gw_vlist_writer_append_uv32(writer, time_delta);
     gw_vlist_writer_append_string(writer, vector);
 
@@ -3041,15 +3161,17 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     g_test_message("Processing value change for symbol %s (id: %s), time: %" GW_TIME_FORMAT ", last_time: %" GW_TIME_FORMAT ", time_delta: %u, value: %c, writer=%p, vartype=%d, size=%d",
             symbol->name, identifier, self->current_time, original_last_time, time_delta, value_char, writer, symbol->vartype, symbol->size);
 
-
-
-
+    // Get the node for immediate history entry creation
+    GwNode *node = symbol->narray[0];
 
 
 
     // Handle different value types
     switch (value_char) {
         case '0':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_0);
+            
             if (writer != NULL) {
                 guint32 accum = (time_delta << 2) | (0 << 1);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3062,6 +3184,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             break;
         case 'l':
         case 'L':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_L);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_L | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3073,6 +3198,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             }
             break;
         case '1':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_1);
+            
             if (writer != NULL) {
                 guint32 accum = (time_delta << 2) | (1 << 1);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3085,6 +3213,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             break;
         case 'u':
         case 'U':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_U);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_U | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3097,6 +3228,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             break;
         case 'w':
         case 'W':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_W);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_W | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3109,6 +3243,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             break;
         case 'x':
         case 'X':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_X);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_X | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3120,6 +3257,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             }
             break;
         case '-':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_DASH);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_D | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3132,6 +3272,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             break;
         case 'h':
         case 'H':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_H);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_H | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3144,6 +3287,9 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
             break;
         case 'z':
         case 'Z':
+            // Create history entry immediately
+            add_scalar_hist_entry(node, self->current_time, GW_BIT_Z);
+            
             if (writer != NULL) {
                 guint32 accum = RCV_Z | (time_delta << 4);
                 g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
@@ -3205,7 +3351,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
 
                 g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
                               symbol->name, identifier, vector, writer);
-                process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
+                process_binary_stream(self, writer, vector, vlen, symbol, time_delta, self->current_time, error);
             }
             break;
         default:

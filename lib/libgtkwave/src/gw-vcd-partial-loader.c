@@ -3477,12 +3477,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        
-                        // Clear the harray so it will be rebuilt with the new entries on next access
-                        if (node->harray != NULL) {
-                            g_free(node->harray);
-                            node->harray = NULL;
-                        }
                     }
                 } else if (vlist_type == 'B' || vlist_type == 'R' || vlist_type == 'S') {
                     // Vector, Real, and String value processing - all use string format
@@ -3534,12 +3528,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        
-                        // Clear the harray so it will be rebuilt with the new entries on next access
-                        if (node->harray != NULL) {
-                            g_free(node->harray);
-                            node->harray = NULL;
-                        }
                     }
                 } else if (vlist_type == 'R' || vlist_type == 'S') {
                     // Real/String value processing - use gw_vlist_reader_read_string()
@@ -3565,12 +3553,6 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         node->curr->next = hent;
                         node->curr = hent;
                         node->numhist++; // Increment numhist for each new transition
-                        
-                        // Clear the harray so it will be rebuilt with the new entries on next access
-                        if (node->harray != NULL) {
-                            g_free(node->harray);
-                            node->harray = NULL;
-                        }
                     }
                 } else {
                     g_test_message("JIT IMPORT: Unsupported vlist type '%c' for symbol %s", vlist_type, symbol_id);

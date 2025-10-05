@@ -1393,7 +1393,7 @@ loader_check_head:
         } else {
             // In interactive mode, we now have a valid dump file with parsed VCD header
             // so we can proceed with normal UI building instead of skipping it
-            fprintf(stderr, "DEBUG: Interactive mode - VCD header parsed successfully, proceeding with UI build\n");
+            /* fprintf(stderr, "DEBUG: Interactive mode - VCD header parsed successfully, proceeding with UI build\n"); */
             
             // Immediately populate the signal store for interactive mode to avoid relying on timer callbacks
             // that might not execute due to timeout constraints
@@ -1411,7 +1411,7 @@ loader_check_head:
                             if (node->child && node->child->t_which >= 0) {
                                 // This node has children that are actual signals
                                 signal_root = node->child;
-                                fprintf(stderr, "DEBUG: Found signal root at %p (%s)\n", signal_root, node->name);
+                                /* fprintf(stderr, "DEBUG: Found signal root at %p (%s)\n", signal_root, node->name); */
                                 break;
                             }
                         }

@@ -271,7 +271,7 @@ static gboolean kick_timeout_callback(gpointer user_data)
 // Helper function to synchronously parse VCD header
 static gboolean parse_vcd_header_synchronously(void)
 {
-    fprintf(stderr, "DEBUG: Synchronously parsing VCD header...\n");
+    /* fprintf(stderr, "DEBUG: Synchronously parsing VCD header...\n"); */
 
     // Block and read until the header is fully parsed
     while (!gw_vcd_partial_loader_is_header_parsed(the_loader)) {
@@ -310,18 +310,18 @@ static gboolean parse_vcd_header_synchronously(void)
         }
     }
 
-    fprintf(stderr, "DEBUG: VCD header parsed successfully\n");
+    /* fprintf(stderr, "DEBUG: VCD header parsed successfully\n"); */
     return TRUE;
 }
 
 GwDumpFile *vcd_partial_adapter_main(const gchar *shm_id)
 {
-    fprintf(stderr, "DEBUG: vcd_partial_adapter_main called with SHM ID: %s\n", shm_id);
+    /* fprintf(stderr, "DEBUG: vcd_partial_adapter_main called with SHM ID: %s\n", shm_id); */
     vcd_partial_adapter_cleanup(); // Clean any previous instance
 
     // Open the shared memory segment
     GError *error = NULL;
-    fprintf(stderr, "DEBUG: Attempting to open SHM segment '%s'\n", shm_id);
+    /* fprintf(stderr, "DEBUG: Attempting to open SHM segment '%s'\n", shm_id); */
     shm = gw_shared_memory_open(shm_id, &error);
     if (!shm) {
         fprintf(stderr, "Error: Could not open SHM segment '%s': %s\n",
@@ -329,15 +329,15 @@ GwDumpFile *vcd_partial_adapter_main(const gchar *shm_id)
         if (error) g_error_free(error);
         return NULL;
     }
-    fprintf(stderr, "DEBUG: Successfully opened SHM segment\n");
+    /* fprintf(stderr, "DEBUG: Successfully opened SHM segment\n"); */
 
     shm_data = (guint8 *)gw_shared_memory_get_data(shm);
     consume_offset = 0;
-    fprintf(stderr, "DEBUG: SHM data pointer: %p, size: %zu\n", shm_data, gw_shared_memory_get_size(shm));
+    /* fprintf(stderr, "DEBUG: SHM data pointer: %p, size: %zu\n", shm_data, gw_shared_memory_get_size(shm)); */
 
     // Create the partial loader
     the_loader = gw_vcd_partial_loader_new();
-    fprintf(stderr, "DEBUG: Partial loader created: %p\n", the_loader);
+    /* fprintf(stderr, "DEBUG: Partial loader created: %p\n", the_loader); */
     if (!the_loader) {
         fprintf(stderr, "Error: Failed to create VCD partial loader\n");
         gw_shared_memory_free(shm);
@@ -355,14 +355,14 @@ GwDumpFile *vcd_partial_adapter_main(const gchar *shm_id)
 
     // Start the timer to periodically check for new data (value changes)
     the_timer_id = g_timeout_add(100, kick_timeout_callback, NULL); // Check every 100ms
-    fprintf(stderr, "DEBUG: Timer started with ID: %u\n", the_timer_id);
+    /* fprintf(stderr, "DEBUG: Timer started with ID: %u\n", the_timer_id); */
 
     // Return the now-valid dump file with complete signal hierarchy
     GwDumpFile *dump_file = gw_vcd_partial_loader_get_dump_file(the_loader);
-    fprintf(stderr, "DEBUG: Dump file after header parse: %p\n", dump_file);
+    /* fprintf(stderr, "DEBUG: Dump file after header parse: %p\n", dump_file); */
 
     // Schedule signal import after UI is fully initialized
-    fprintf(stderr, "DEBUG: Scheduling signal import after UI initialization...\n");
+    /* fprintf(stderr, "DEBUG: Scheduling signal import after UI initialization...\n"); */
     g_timeout_add(500, import_signals_timeout_callback, NULL); // Increased to 500ms
 
     return dump_file;

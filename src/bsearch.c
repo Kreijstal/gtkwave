@@ -135,6 +135,19 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
                 bsearch_node(parent, key);
             }
             
+            // Validate bit_index is within parent's vector bounds
+            int parent_width = ABS(parent->msi - parent->lsi) + 1;
+            if (bit_index < 0 || bit_index >= parent_width) {
+                DEBUG(printf("  ERROR: bit_index %d out of bounds for parent width %d\n", 
+                             bit_index, parent_width));
+                // Create minimal history with just the head
+                n->numhist = 1;
+                GwHistEnt **harray = g_new(GwHistEnt *, 1);
+                n->harray = harray;
+                harray[0] = &(n->head);
+                goto done_building;
+            }
+            
             if (parent->harray != NULL && parent->numhist > 0) {
                 // Build child node's history from parent's vector data
                 n->head.time = -1;
@@ -214,6 +227,8 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
                 harray[0] = &(n->head);
             }
         }
+    done_building:
+        ; // Empty statement for label
     }
     // Rebuild harray if it's NULL (e.g., after streaming VCD data added new history entries)
     // This branch is for non-expanded nodes only

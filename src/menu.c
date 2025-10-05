@@ -1303,6 +1303,7 @@ unsigned create_group(const char *name, GwTrace *t_composite)
                 return (0);
             }
 
+            t_begin->refcount = 1; /* Initialize reference count */
             t_begin->flags = (TR_BLANK | TR_GRP_BEGIN);
             t_begin->name = (char *)malloc_2(1 + strlen(name));
             strcpy(t_begin->name, name);
@@ -1318,6 +1319,7 @@ unsigned create_group(const char *name, GwTrace *t_composite)
             return (0);
         }
 
+        t_end->refcount = 1; /* Initialize reference count */
         t_end->flags = (TR_BLANK | TR_GRP_END);
 
         if (t_composite) {

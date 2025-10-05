@@ -363,6 +363,7 @@ int AddBlankTrace(char *commentname)
         fprintf(stderr, "Out of memory, can't add blank trace to analyzer\n");
         return (0);
     }
+    t->refcount = 1; /* Initialize reference count */
     AddTrace(t);
     /* Keep only flags that make sense for a blank trace. */
     flags_filtered = TR_BLANK | (GLOBALS->default_flags & (TR_CLOSED | TR_GRP_BEGIN | TR_GRP_END |
@@ -395,6 +396,7 @@ int InsertBlankTrace(char *comment, TraceFlagsType different_flags)
         return (0);
     }
 
+    t->refcount = 1; /* Initialize reference count */
     GLOBALS->traces.dirty = 1;
 
     if (!different_flags) {
@@ -453,6 +455,8 @@ int AddNodeTraceReturn(GwNode *nd, char *aliasname, GwTrace **tret)
         fprintf(stderr, "Out of memory, can't add to analyzer\n");
         return (0);
     }
+
+    t->refcount = 1; /* Initialize reference count */
 
     if (!nd->harray) /* make quick array lookup for aet display */
     {
@@ -558,6 +562,8 @@ int AddVector(GwBitVector *vec, char *aliasname)
         return (0);
     }
 
+    t->refcount = 1; /* Initialize reference count */
+
     if (aliasname) {
         t->name_full = strdup_2(aliasname);
         t->name = t->name_full;
@@ -576,18 +582,44 @@ int AddVector(GwBitVector *vec, char *aliasname)
 }
 
 /*
+ * Acquire a reference to a trace (increment refcount)
+ */
+GwTrace *AcquireTrace(GwTrace *t)
+{
+    if (t) {
+        t->refcount++;
+    }
+    return t;
+}
+
+/*
+ * Release a reference to a trace (decrement refcount and free if zero)
+ */
+void ReleaseTrace(GwTrace *t)
+{
+    if (!t) {
+        return;
+    }
+
+    t->refcount--;
+    
+    if (t->refcount <= 0) {
+        /* Actually free the trace now */
+        FreeTrace(t);
+    }
+}
+
+/*
  * Free up a trace's mallocs...
+ * This is now an internal function called only by ReleaseTrace when refcount reaches 0
  */
 void FreeTrace(GwTrace *t)
 {
     GLOBALS->traces.dirty = 1;
 
-    if (GLOBALS->strace_ctx->straces) {
-        struct strace_defer_free *sd = calloc_2(1, sizeof(struct strace_defer_free));
-        sd->next = GLOBALS->strace_ctx->strace_defer_free_head;
-        sd->defer = t;
-
-        GLOBALS->strace_ctx->strace_defer_free_head = sd;
+    /* Reference counting replaces the old deferred free mechanism */
+    if (t->refcount > 0) {
+        /* Still has references, don't free yet */
         return;
     }
 
@@ -697,7 +729,7 @@ void RemoveTrace(GwTrace *t, int dofree)
     }
 
     if (dofree) {
-        FreeTrace(t);
+        ReleaseTrace(t); /* Use ReleaseTrace instead of FreeTrace */
     }
 }
 
@@ -713,7 +745,7 @@ void FreeCutBuffer(void)
 
     while (t) {
         t2 = t->t_next;
-        FreeTrace(t);
+        ReleaseTrace(t); /* Use ReleaseTrace instead of FreeTrace */
         t = t2;
     }
 
@@ -1184,6 +1216,7 @@ int TracesReorder(int mode)
 
                     if (!cnt) {
                         tsort_reduced[num_reduced] = calloc_2(1, sizeof(GwTrace));
+                        tsort_reduced[num_reduced]->refcount = 1; /* Initialize reference count */
                         tsort_reduced[num_reduced]->name = tsort[i]->name;
                         tsort_reduced[num_reduced]->is_sort_group = 1;
                         tsort_reduced[num_reduced]->t_grp = tsort[i];

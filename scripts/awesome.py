@@ -117,8 +117,7 @@ def find_element_by_role_and_name(
 
 def find_mysim_cell(app) -> Result[Any]:
     """Find the mysim table cell."""
-    cell = find_element_by_role_and_name(app, "table cell", "mysim")
-    if cell:
+    if cell := find_element_by_role_and_name(app, "table cell", "mysim"):
         print(f"Found 'mysim' cell: {cell.name}")
         return Result.success((app, cell))
     return Result.failure("'mysim' not found")

@@ -21,8 +21,6 @@ void gw_expand_info_free_deep(GwExpandInfo *self) {
                 g_free(self->narray[i]);
             }
         }
-        g_free(self->narray);
-        self->narray = NULL;
     }
     gw_expand_info_free(self);
 }

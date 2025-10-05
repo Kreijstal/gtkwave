@@ -3569,18 +3569,38 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     node->harray = NULL;
 
                     // If this node is an expanded vector, invalidate its children too.
+                    // Use extremely conservative approach - only propagate if we're very confident
+                    // the expand_info structure is still valid and hasn't been freed
                     if (node->expand_info) {
                         GwExpandInfo *einfo = node->expand_info;
-                        // Check if expand_info structure is still valid (narray pointer should be non-NULL)
-                        if (einfo->narray) {
-                            g_debug("Propagating harray invalidation from '%s' to %d children.", node->nname, einfo->width);
+                        
+                        // Only proceed if all these conditions are met:
+                        // 1. einfo pointer is non-NULL
+                        // 2. narray pointer is non-NULL
+                        // 3. width is reasonable (1-1024)
+                        // 4. All child pointers in narray are non-NULL
+                        // This is extremely conservative to avoid segfaults from freed memory
+                        gboolean all_children_valid = TRUE;
+                        if (einfo && einfo->narray && einfo->width > 0 && einfo->width <= 1024) {
+                            // Check that all child pointers are non-NULL before proceeding
                             for (int i = 0; i < einfo->width; i++) {
-                                if (einfo->narray[i]) {
-                                    einfo->narray[i]->harray = NULL;
+                                if (!einfo->narray[i]) {
+                                    all_children_valid = FALSE;
+                                    break;
                                 }
                             }
+                            
+                            if (all_children_valid) {
+                                g_debug("Propagating harray invalidation from '%s' to %d children.", node->nname, einfo->width);
+                                for (int i = 0; i < einfo->width; i++) {
+                                    einfo->narray[i]->harray = NULL;
+                                }
+                            } else {
+                                g_debug("Expand info for '%s' has NULL child pointers, skipping propagation", node->nname);
+                            }
                         } else {
-                            g_debug("Expand info for '%s' has been freed (narray is NULL), skipping propagation", node->nname);
+                            g_debug("Expand info for '%s' appears invalid (einfo=%p, narray=%p, width=%d), skipping propagation", 
+                                   node->nname, einfo, einfo ? einfo->narray : NULL, einfo ? einfo->width : -1);
                         }
                     }
                 }

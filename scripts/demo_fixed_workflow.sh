@@ -18,6 +18,62 @@ echo "GTKWave Accessibility Test - Wrapped Demo Workflow"
 echo "====================================================="
 echo ""
 
+# Try to ensure a working X display is available. Do NOT install packages.
+# If the current $DISPLAY is not reachable and Xvfb is available, start it on :99.
+XVFB_PID=""
+cleanup_xvfb() {
+    if [ -n "${XVFB_PID:-}" ]; then
+        echo "Shutting down Xvfb (PID: ${XVFB_PID})..."
+        kill "${XVFB_PID}" 2>/dev/null || true
+        wait "${XVFB_PID}" 2>/dev/null || true
+    fi
+}
+trap cleanup_xvfb EXIT
+
+start_xvfb_if_needed() {
+    # If DISPLAY is set and xdpyinfo can talk to it, we're good.
+    if [ -n "${DISPLAY:-}" ]; then
+        if command -v xdpyinfo >/dev/null 2>&1; then
+            if xdpyinfo >/dev/null 2>&1; then
+                echo "Existing X display (${DISPLAY}) is reachable."
+                return 0
+            else
+                echo "Existing X display (${DISPLAY}) not reachable."
+            fi
+        else
+            echo "xdpyinfo not found; cannot verify existing DISPLAY (${DISPLAY})."
+        fi
+    else
+        echo "No DISPLAY set."
+    fi
+
+    # Try to start Xvfb on :99 if available (do not attempt to install).
+    if command -v Xvfb >/dev/null 2>&1; then
+        echo "Attempting to start Xvfb on :99 (no installation will be performed)..."
+        # Start Xvfb detached, log to a temporary file
+        Xvfb :99 -screen 0 1024x768x24 >/tmp/demo_xvfb.log 2>&1 &
+        XVFB_PID=$!
+        export DISPLAY=:99
+        # Give it a moment to come up
+        sleep 0.5
+        if command -v xdpyinfo >/dev/null 2>&1; then
+            if xdpyinfo >/dev/null 2>&1; then
+                echo "Xvfb started and is responding on ${DISPLAY} (PID: ${XVFB_PID})."
+                return 0
+            else
+                echo "Warning: Xvfb started (PID: ${XVFB_PID}) but xdpyinfo cannot connect yet."
+            fi
+        else
+            echo "Xvfb started (PID: ${XVFB_PID}); xdpyinfo not available to verify."
+            return 0
+        fi
+    else
+        echo "Xvfb not available on PATH; continuing without starting an X server."
+    fi
+
+    return 1
+}
+
 # Step 1: Compile
 echo "Step 1: Compiling GTKWave..."
 meson compile -C builddir
@@ -96,6 +152,8 @@ INNER
 
 # Prefer using the older setup_test_env.sh which properly sets up AT-SPI
 LAUNCHER="./scripts/setup_test_env.sh"
+# Ensure we have an X server available if possible (but don't install anything)
+start_xvfb_if_needed || true
 if [ -x "${LAUNCHER}" ]; then
     echo "Using ${LAUNCHER} to provide AT-SPI infrastructure..."
     _run_demo_via_launcher "${LAUNCHER}"

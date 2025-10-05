@@ -183,8 +183,24 @@ GwExpandInfo *gw_node_expand(GwNode *self)
         exp1->actual = actual;
         actual += delta;
         narray[i]->expansion = exp1; /* can be safely deleted if expansion set like here */
+        
+        // Initialize minimal history for expanded child nodes - they will dynamically
+        // extract their data from the parent node's vector history at render time
+        narray[i]->head.time = -1;
+        narray[i]->head.v.h_val = GW_BIT_X;
+        narray[i]->head.next = NULL;
+        narray[i]->curr = &(narray[i]->head);
+        narray[i]->numhist = 0; // Will be populated on-demand during rendering
+        narray[i]->harray = NULL; // Will be populated on-demand during rendering
     }
 
+    // Skip copying history for expanded nodes - they will dynamically reference parent
+    // This allows real-time streaming to work correctly as child nodes stay synchronized
+    // with parent updates
+    return rc;
+
+    // Old code that copied history - removed to enable live updates
+    #if 0
     for (i = 0; i < self->numhist; i++) {
         h = self->harray[i];
         if (h->time < 0 || h->time >= GW_TIME_MAX - 1) {
@@ -267,4 +283,5 @@ GwExpandInfo *gw_node_expand(GwNode *self)
     }
 
     return rc;
+    #endif // End of old history copying code
 }

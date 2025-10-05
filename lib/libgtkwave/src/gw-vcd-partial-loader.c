@@ -3569,21 +3569,21 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     node->harray = NULL;
 
                     // If this node is an expanded vector, invalidate its children too.
-                    // Use extremely conservative approach - only propagate if we're very confident
-                    // the expand_info structure is still valid and hasn't been freed
-                    // 
-                    // TEMPORARY: Commenting out this code as it's causing segfaults
-                    // TODO: Fix the expand_info lifecycle management issue
+                    // TODO: Re-enable with proper expand_info lifecycle management
+                    // Currently disabled to avoid crashes. The expand_info structure
+                    // needs full reference counting implementation to work safely.
                     /*
                     if (node->expand_info) {
                         GwExpandInfo *einfo = node->expand_info;
+                        
+                        // Acquire a reference to prevent freeing while we're using it
+                        gw_expand_info_acquire(einfo);
                         
                         // Only proceed if all these conditions are met:
                         // 1. einfo pointer is non-NULL
                         // 2. narray pointer is non-NULL
                         // 3. width is reasonable (1-1024)
                         // 4. All child pointers in narray are non-NULL
-                        // This is extremely conservative to avoid segfaults from freed memory
                         gboolean all_children_valid = TRUE;
                         if (einfo && einfo->narray && einfo->width > 0 && einfo->width <= 1024) {
                             // Check that all child pointers are non-NULL before proceeding
@@ -3606,6 +3606,9 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             g_debug("Expand info for '%s' appears invalid (einfo=%p, narray=%p, width=%d), skipping propagation", 
                                    node->nname, einfo, einfo ? einfo->narray : NULL, einfo ? einfo->width : -1);
                         }
+                        
+                        // Release the reference
+                        gw_expand_info_release(einfo);
                     }
                     */
                 }

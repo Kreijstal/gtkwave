@@ -18,10 +18,13 @@ typedef struct
     GwNode **narray;
     int msb, lsb;
     int width;
+    int refcount;  // Reference count for proper lifecycle management
 } GwExpandInfo;
 
 void gw_expand_info_free(GwExpandInfo *self);
 void gw_expand_info_free_deep(GwExpandInfo *self);
+GwExpandInfo *gw_expand_info_acquire(GwExpandInfo *self);
+void gw_expand_info_release(GwExpandInfo *self);
 
 struct _GwExpandReferences
 {

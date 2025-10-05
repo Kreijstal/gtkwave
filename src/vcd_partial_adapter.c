@@ -5,6 +5,7 @@
 #include "wavewindow.h"
 #include "analyzer.h"
 #include "treesearch.h"
+#include "timeentry.h"
 #include <unistd.h>
 #include <string.h>
 #include "savefile.h"
@@ -304,11 +305,9 @@ static gboolean kick_timeout_callback(gpointer user_data)
                                 child_trace = child_trace->t_next;
                             }
                             
-                            // Intentionally do NOT free the old expand_info or its narray.
-                            // The VCD partial loader may still have references to it during
-                            // harray invalidation. This is a known memory leak that will be
-                            // fixed with proper reference counting in a future commit.
-                            // For now, preventing crashes is more important than preventing leaks.
+                            // Do NOT free the old expand_info yet - keep reference counting
+                            // infrastructure in place but don't actively use it until fully tested
+                            // For now, this creates a small memory leak but prevents crashes
                         } else {
                             // Re-expansion failed, restore the old expand_info pointer
                             parent_node->expand_info = old_expand_info;
@@ -322,6 +321,9 @@ static gboolean kick_timeout_callback(gpointer user_data)
             if (range) {
                 GLOBALS->tims.last = gw_time_range_get_end(range);
             }
+
+            // Update the time entry fields (From/To) to reflect new time range
+            update_endcap_times_for_partial_vcd();
 
             // Redraw the UI
             fix_wavehadj();

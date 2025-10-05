@@ -3413,8 +3413,9 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             GwVlist *vlist = gw_vlist_writer_get_vlist(writer);
 
             // If new data has been written, process it
-            if (vlist && vlist->size > last_pos) {
-                g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist->size);
+            guint vlist_total_size = gw_vlist_size(vlist);
+            if (vlist && vlist_total_size > last_pos) {
+                g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist_total_size);
 
                 GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
                 gw_vlist_reader_set_position(reader, last_pos);

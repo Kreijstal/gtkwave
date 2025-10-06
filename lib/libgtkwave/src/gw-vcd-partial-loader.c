@@ -363,9 +363,9 @@ static struct vcdsymbol *bsearch_vcd(GwVcdPartialLoader *self, char *key, int le
         }
     } else {
         if (!self->err) {
-            fprintf(stderr,
+            /* fprintf(stderr,
                     "Near byte %d, VCD search table NULL..is this a VCD file?\n",
-                    (int)(self->vcdbyteno + (self->vst - self->vcdbuf)));
+                    (int)(self->vcdbyteno + (self->vst - self->vcdbuf))); */
             self->err = TRUE;
         }
         return (NULL);
@@ -422,7 +422,7 @@ static void create_sorted_table(GwVcdPartialLoader *self)
             qsort(self->symbols_sorted, self->numsyms, sizeof(struct vcdsymbol *), vcdsymcompare);
         }
     } else {
-        g_test_message("create_sorted_table: No symbols to index");
+        if (0) g_test_message("create_sorted_table: No symbols to index");
     }
 }
 
@@ -900,10 +900,10 @@ static void vcd_partial_parse_valuechange_scalar(GwVcdPartialLoader *self)
     if (self->yylen > 1) {
         v = bsearch_vcd(self, self->yytext + 1, self->yylen - 1);
         if (!v) {
-            fprintf(stderr,
+            /* fprintf(stderr,
                     "Near byte %d, Unknown VCD identifier: '%s'\n",
                     (int)(self->vcdbyteno + (self->vst - self->vcdbuf)),
-                    self->yytext + 1);
+                    self->yytext + 1); */
             malform_eof_fix(self);
         } else {
             GwNode *n = v->narray[0];
@@ -964,9 +964,9 @@ static void vcd_partial_parse_valuechange_scalar(GwVcdPartialLoader *self)
             gw_vlist_writer_append_uv32(n->mv.mvlfac_vlist_writer, rcv);
         }
     } else {
-        fprintf(stderr,
+        /* fprintf(stderr,
                 "Near byte %d, Malformed VCD identifier\n",
-                (int)(self->vcdbyteno + (self->vst - self->vcdbuf)));
+                (int)(self->vcdbyteno + (self->vst - self->vcdbuf))); */
         malform_eof_fix(self);
     }
 }
@@ -995,10 +995,10 @@ static void process_binary(GwVcdPartialLoader *self, gchar typ, const gchar *vec
 {
     struct vcdsymbol *v = bsearch_vcd(self, self->yytext, self->yylen);
     if (v == NULL) {
-        fprintf(stderr,
+        /* fprintf(stderr,
                 "Near byte %d, Unknown VCD identifier: '%s'\n",
                 (int)(self->vcdbyteno + (self->vst - self->vcdbuf)),
-                self->yytext + 1);
+                self->yytext + 1); */
         malform_eof_fix(self);
     }
 
@@ -1588,7 +1588,7 @@ static void vcd_partial_parse_var(GwVcdPartialLoader *self)
 {
     // TODO: why was this disabled?
     // if ((self->header_over) && (0)) {
-    //     fprintf(stderr,
+    //     if (0) fprintf(stderr,
     //             "$VAR encountered after $ENDDEFINITIONS near byte %d.  VCD is malformed, "
     //             "exiting.\n",
     //             (int)(self->vcdbyteno + (self->vst - self->vcdbuf)));
@@ -1686,15 +1686,15 @@ err:
     if (v) {
         self->error_count++;
         if (v->name) {
-            fprintf(stderr,
+            /* fprintf(stderr,
                     "Near byte %d, $VAR parse error encountered with '%s'\n",
                     (int)(self->vcdbyteno + (self->vst - self->vcdbuf)),
-                    v->name);
+                    v->name); */
             g_free(v->name);
         } else {
-            fprintf(stderr,
+            /* fprintf(stderr,
                     "Near byte %d, $VAR parse error encountered\n",
-                    (int)(self->vcdbyteno + (self->vst - self->vcdbuf)));
+                    (int)(self->vcdbyteno + (self->vst - self->vcdbuf))); */
         }
         if (v->id)
             g_free(v->id);
@@ -1734,12 +1734,12 @@ static void _gw_vcd_partial_loader_initialize_dump_file(GwVcdPartialLoader *self
     self->tree_root = gw_tree_builder_build(self->tree_builder);
     GwTree *tree = vcd_build_tree(self, facs);
 
-    g_debug("Current time properties: scale=%" GW_TIME_FORMAT ", dimension=%d",
+    if (0) g_debug("Current time properties: scale=%" GW_TIME_FORMAT ", dimension=%d",
             self->time_scale, self->time_dimension);
 
     // Only create dump file when time properties are known
     if (self->time_scale == 0 || self->time_dimension == GW_TIME_DIMENSION_NONE) {
-        g_debug("Time properties not yet known, cannot create dump file");
+        if (0) g_debug("Time properties not yet known, cannot create dump file");
         return;
     }
 
@@ -1748,7 +1748,7 @@ static void _gw_vcd_partial_loader_initialize_dump_file(GwVcdPartialLoader *self
         g_object_unref(self->dump_file);
     }
 
-    g_debug("Creating dump file with time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
+    if (0) g_debug("Creating dump file with time_scale=%" GW_TIME_FORMAT ", time_dimension=%d",
             self->time_scale, self->time_dimension);
     GwTimeRange *time_range = gw_time_range_new(self->start_time, self->end_time);
     self->dump_file = g_object_new(GW_TYPE_VCD_FILE,
@@ -1770,7 +1770,7 @@ static void _gw_vcd_partial_loader_initialize_dump_file(GwVcdPartialLoader *self
                                             "uses-vhdl-component-format", FALSE,
                                             NULL);
     g_object_unref(time_range);
-    g_debug("Dump file created successfully: %p", self->dump_file);
+    if (0) g_debug("Dump file created successfully: %p", self->dump_file);
 
 
 
@@ -1844,7 +1844,7 @@ static void vcd_partial_parse_string(GwVcdPartialLoader *self)
             if (tim < self->current_time) {
                 if (!self->already_backtracked) {
                     self->already_backtracked = TRUE;
-                    fprintf(stderr, "VCDLOAD | Time backtracking detected in VCD file!\n");
+                    /* fprintf(stderr, "VCDLOAD | Time backtracking detected in VCD file!\n"); */
                 }
             }
 #if 0
@@ -1858,7 +1858,7 @@ static void vcd_partial_parse_string(GwVcdPartialLoader *self)
         self->current_time = tim;
         if (self->end_time < tim)
             self->end_time = tim; /* in case of malformed vcd files */
-        // DEBUG(fprintf(stderr, "#%" GW_TIME_FORMAT "\n", tim));
+        // DEBUG(if (0) fprintf(stderr, "#%" GW_TIME_FORMAT "\n", tim));
 
         tt = gw_vlist_alloc(&self->time_vlist, FALSE, self->vlist_compression_level);
         *tt = tim;
@@ -1932,7 +1932,7 @@ static void vcd_partial_build_symbols(GwVcdPartialLoader *self)
                 n->curr = (GwHistEnt *)n2; // Point to the original's history
                 n->numhist = n2->numhist;
             } else {
-                fprintf(stderr, "ERROR: Duplicate IDs with differing width: %s %s\n", v->name, vprime->name);
+                /* fprintf(stderr, "ERROR: Duplicate IDs with differing width: %s %s\n", v->name, vprime->name); */
             }
         }
 
@@ -2041,7 +2041,7 @@ static void build_tree_from_name(GwVcdPartialLoader *self,
                 t = t->child;
                 continue;
             } else if (s && t) {
-                //g_test_message("  Module mismatch: t->name=%s, self->module_tree=%s", t->name, self->module_tree);
+                //if (0) g_test_message("  Module mismatch: t->name=%s, self->module_tree=%s", t->name, self->module_tree);
             }
 
             tchain = tchain_iter = t;
@@ -2300,7 +2300,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
 // State machine for handling $dumpvars block
 static void _vcd_partial_enter_dumpvars_state(GwVcdPartialLoader *self)
 {
-    g_debug("Entering dumpvars state");
+    if (0) g_debug("Entering dumpvars state");
     self->in_dumpvars_block = TRUE;
     self->current_time = 0;
     self->time_vlist_count = 0;
@@ -2308,7 +2308,7 @@ static void _vcd_partial_enter_dumpvars_state(GwVcdPartialLoader *self)
 
 static void _vcd_partial_exit_dumpvars_state(GwVcdPartialLoader *self)
 {
-    g_debug("Exiting dumpvars state");
+    if (0) g_debug("Exiting dumpvars state");
     self->in_dumpvars_block = FALSE;
 }
 
@@ -2365,27 +2365,27 @@ static void process_vcd_token(GwVcdPartialLoader *self, const gchar *token, gsiz
     } else if (g_str_has_prefix(trimmed_token, "$timezero")) {
         _vcd_partial_handle_timezero(self, trimmed_token, trimmed_len, error);
     } else if (g_str_has_prefix(trimmed_token, "$scope")) {
-        g_debug("Processing scope command: %.*s", (int)trimmed_len, trimmed_token);
+        if (0) g_debug("Processing scope command: %.*s", (int)trimmed_len, trimmed_token);
         _vcd_partial_handle_scope(self, trimmed_token, trimmed_len, error);
     } else if (g_str_has_prefix(trimmed_token, "$var")) {
         _vcd_partial_handle_var(self, trimmed_token, trimmed_len, error);
     } else if (g_str_has_prefix(trimmed_token, "$upscope")) {
         // Handle upscope by popping scope from tree builder
-        g_debug("Processing upscope command");
+        if (0) g_debug("Processing upscope command");
         gw_tree_builder_pop_scope(self->tree_builder);
     } else if (g_str_has_prefix(trimmed_token, "$enddefinitions")) {
         // Handle enddefinitions
-        g_debug("Processing enddefinitions command");
+        if (0) g_debug("Processing enddefinitions command");
         vcd_partial_parse_enddefinitions(self, error);
     } else if (g_str_has_prefix(trimmed_token, "$date")) {
         // Handle date - just ignore for now
-        g_debug("Ignoring date command");
+        if (0) g_debug("Ignoring date command");
     } else if (g_str_has_prefix(trimmed_token, "$version")) {
         // Handle version - just ignore for now
-        g_debug("Ignoring version command");
+        if (0) g_debug("Ignoring version command");
     } else if (g_str_has_prefix(trimmed_token, "$comment")) {
         // Handle comment - just ignore for now
-        g_debug("Ignoring comment command");
+        if (0) g_debug("Ignoring comment command");
     } else if (g_str_has_prefix(trimmed_token, "$dumpvars")) {
         _vcd_partial_handle_dumpvars(self, trimmed_token, error);
     } else if (g_str_has_prefix(trimmed_token, "$end")) {
@@ -2557,7 +2557,7 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
         return;
     }
 
-    g_debug("Parsing scope: type='%s', name='%s'", scope_type, scope_name);
+    if (0) g_debug("Parsing scope: type='%s', name='%s'", scope_type, scope_name);
 
     // Map scope type to tree kind
     unsigned char ttype = GW_TREE_KIND_UNKNOWN;
@@ -2604,12 +2604,12 @@ static void _vcd_partial_handle_scope(GwVcdPartialLoader *self, const gchar *tok
     }
 
     // Push the scope to the tree builder
-    g_debug("Pushing scope: %s (type: %d, tree builder: %p)", scope_name, ttype, self->tree_builder);
+    if (0) g_debug("Pushing scope: %s (type: %d, tree builder: %p)", scope_name, ttype, self->tree_builder);
     GwTreeNode *scope = gw_tree_builder_push_scope(self->tree_builder, ttype, scope_name);
     if (scope) {
-        g_debug("Scope pushed successfully: %p", scope);
+        if (0) g_debug("Scope pushed successfully: %p", scope);
     } else {
-        g_debug("Failed to push scope");
+        if (0) g_debug("Failed to push scope");
     }
     if (scope) {
         scope->t_which = -1;
@@ -2625,7 +2625,7 @@ static void _vcd_partial_handle_upscope(GwVcdPartialLoader *self, const gchar *t
     g_assert(token != NULL);
     g_assert(error != NULL && *error == NULL);
 
-    g_debug("Popping scope (tree builder: %p)", self->tree_builder);
+    if (0) g_debug("Popping scope (tree builder: %p)", self->tree_builder);
     gw_tree_builder_pop_scope(self->tree_builder);
 }
 
@@ -2707,7 +2707,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
 
     // Debug output for string variables
     if (vartype == V_STRINGTYPE) {
-      //  g_debug("Creating string variable: name=%s, id=%s, size=%d, vartype=%d", var_name, var_id, var_size, vartype);
+      //  if (0) g_debug("Creating string variable: name=%s, id=%s, size=%d, vartype=%d", var_name, var_id, var_size, vartype);
     }
     if (vartype == V_REAL || vartype == V_STRINGTYPE) {
         v->msi = 0;
@@ -2721,11 +2721,11 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
 
     // Update min/max IDs for efficient symbol lookup
     if (v->nid < self->vcd_minid) {
-        //g_test_message("Updating vcd_minid: %u -> %u", self->vcd_minid, v->nid);
+        //if (0) g_test_message("Updating vcd_minid: %u -> %u", self->vcd_minid, v->nid);
         self->vcd_minid = v->nid;
     }
     if (v->nid > self->vcd_maxid) {
-       // g_test_message("Updating vcd_maxid: %u -> %u", self->vcd_maxid, v->nid);
+       // if (0) g_test_message("Updating vcd_maxid: %u -> %u", self->vcd_maxid, v->nid);
         self->vcd_maxid = v->nid;
     }
 
@@ -2836,7 +2836,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     gw_vlist_writer_set_live_mode(writer, TRUE);
 
     // Debug: log what type header we're writing
-    g_test_message("Creating vlist writer for signal '%s': size=%d, vartype=%d, writing header type=%c",
+    if (0) g_test_message("Creating vlist writer for signal '%s': size=%d, vartype=%d, writing header type=%c",
                   v->name, v->size, v->vartype,
                   (v->size == 1 && v->vartype != V_REAL && v->vartype != V_STRINGTYPE) ? '0' :
                   ((v->vartype == V_REAL) ? 'R' : (v->vartype == V_STRINGTYPE) ? 'S' : 'B'));
@@ -2868,7 +2868,7 @@ static void _vcd_partial_handle_var(GwVcdPartialLoader *self, const gchar *token
     guint64 *combined_value = g_new(guint64, 1);
     *combined_value = ((guint64)0 << 32) | 0;
     g_hash_table_insert(self->vlist_import_positions, g_strdup(var_id), combined_value);
-    //g_test_message("Initialized import position for symbol %s: combined_value=%lu", var_id, *combined_value);
+    //if (0) g_test_message("Initialized import position for symbol %s: combined_value=%lu", var_id, *combined_value);
 
 }
 
@@ -2899,7 +2899,7 @@ static void _vcd_partial_handle_time_change(GwVcdPartialLoader *self, const gcha
         // Time values are tracked by count, the actual time list is built when needed
         self->time_vlist_count++;
 
-        g_debug("Time change parsed: time=%" GW_TIME_FORMAT ", scale=%" GW_TIME_FORMAT ", dimension=%d",
+        if (0) g_debug("Time change parsed: time=%" GW_TIME_FORMAT ", scale=%" GW_TIME_FORMAT ", dimension=%d",
                 time_value, self->time_scale, self->time_dimension);
 
     } else {
@@ -3038,7 +3038,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
     symbol->narray[0]->last_time = self->current_time;
     symbol->narray[0]->last_time_raw = self->current_time_raw;
 
-    g_test_message("Processing value change for symbol %s (id: %s), time: %" GW_TIME_FORMAT ", last_time: %" GW_TIME_FORMAT ", time_delta: %u, value: %c, writer=%p, vartype=%d, size=%d",
+    if (0) g_test_message("Processing value change for symbol %s (id: %s), time: %" GW_TIME_FORMAT ", last_time: %" GW_TIME_FORMAT ", time_delta: %u, value: %c, writer=%p, vartype=%d, size=%d",
             symbol->name, identifier, self->current_time, original_last_time, time_delta, value_char, writer, symbol->vartype, symbol->size);
 
 
@@ -3052,7 +3052,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case '0':
             if (writer != NULL) {
                 guint32 accum = (time_delta << 2) | (0 << 1);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3064,7 +3064,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'L':
             if (writer != NULL) {
                 guint32 accum = RCV_L | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3075,7 +3075,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case '1':
             if (writer != NULL) {
                 guint32 accum = (time_delta << 2) | (1 << 1);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3087,7 +3087,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'U':
             if (writer != NULL) {
                 guint32 accum = RCV_U | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3099,7 +3099,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'W':
             if (writer != NULL) {
                 guint32 accum = RCV_W | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3111,7 +3111,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'X':
             if (writer != NULL) {
                 guint32 accum = RCV_X | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3122,7 +3122,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case '-':
             if (writer != NULL) {
                 guint32 accum = RCV_D | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3134,7 +3134,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'H':
             if (writer != NULL) {
                 guint32 accum = RCV_H | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3146,7 +3146,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
         case 'Z':
             if (writer != NULL) {
                 guint32 accum = RCV_Z | (time_delta << 4);
-                g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
+                if (0) g_test_message("WRITING to scalar VList for %s: time_delta=%u, accum=0x%x", identifier, time_delta, accum);
                 gw_vlist_writer_append_uv32(writer, accum);
             }
             // Restore original time after processing value change (if we modified it for dumpvars)
@@ -3182,7 +3182,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                     }
                 } else {
                     // For string values, extract the value part (before VCD identifier)
-                    g_debug("Processing string value: token=%s, len=%zu", token, len);
+                    if (0) g_debug("Processing string value: token=%s, len=%zu", token, len);
                     const char *value_start = token + 1;
                     const char *id_start = strchr(value_start, ' ');
                     if (id_start != NULL) {
@@ -3203,7 +3203,7 @@ static void _vcd_partial_handle_value_change(GwVcdPartialLoader *self, const gch
                     vlen = strlen(vector);
                 }
 
-                g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
+                if (0) g_test_message("Calling process_binary_stream for %s (id: %s) with vector=%s, writer=%p",
                               symbol->name, identifier, vector, writer);
                 process_binary_stream(self, writer, vector, vlen, symbol, time_delta, error);
             }
@@ -3345,14 +3345,14 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
     }
 
     // Detect streaming mode (no $enddefinitions but header is complete)
-    g_test_message("Checking streaming mode: header_over=%d, time_scale=%" GW_TIME_FORMAT ", numfacs=%u, current_scope=%p",
+    if (0) g_test_message("Checking streaming mode: header_over=%d, time_scale=%" GW_TIME_FORMAT ", numfacs=%u, current_scope=%p",
                    self->header_over, self->time_scale, self->numfacs, gw_tree_builder_get_current_scope(self->tree_builder));
     if (!self->is_streaming_mode) {
         // Check if we have all components of a complete header
         if (self->time_scale != 0 && self->numfacs > 0 &&
             gw_tree_builder_get_current_scope(self->tree_builder) == NULL) {
             self->is_streaming_mode = TRUE;
-            g_test_message("Detected streaming mode - enabling state preservation");
+            if (0) g_test_message("Detected streaming mode - enabling state preservation");
             // Initialize for streaming mode
             _gw_vcd_partial_loader_initialize_streaming_mode(self);
         }
@@ -3415,7 +3415,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
             // If new data has been written, process it
             guint vlist_total_size = gw_vlist_size(vlist);
             if (vlist && vlist_total_size > last_pos) {
-                g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist_total_size);
+                if (0) g_test_message("IMPORT: Processing %s, last_pos=%zu, vlist_size=%u", symbol_id, last_pos, vlist_total_size);
 
                 GwVlistReader *reader = gw_vlist_reader_new_from_writer(writer);
                 gw_vlist_reader_set_position(reader, last_pos);
@@ -3429,7 +3429,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 // Process header if this is the first read
                 if (last_pos == 0 && vlist->size >= 1) {
                     vlist_type = gw_vlist_reader_read_uv32(reader);
-                    g_test_message("JIT IMPORT: First read for %s, vlist_type from vlist=%c (0x%02x)",
+                    if (0) g_test_message("JIT IMPORT: First read for %s, vlist_type from vlist=%c (0x%02x)",
                                   symbol_id, (char)vlist_type, vlist_type);
                     if (vlist_type == '0') {
                         gw_vlist_reader_read_uv32(reader); // Skip vartype
@@ -3445,7 +3445,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                     // For subsequent reads, we need to know the vlist type
                     // It's stored in the upper 32 bits of the import position
                     vlist_type = (combined_value >> 32) & 0xFFFFFFFF;
-                    g_test_message("JIT IMPORT: Subsequent read for %s, vlist_type=%c (0x%02x)",
+                    if (0) g_test_message("JIT IMPORT: Subsequent read for %s, vlist_type=%c (0x%02x)",
                                   symbol_id, (char)vlist_type, vlist_type);
                 }
 
@@ -3503,7 +3503,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             hent->v.h_vector = (char *)g_strdup(value_str);
                         } else {
                             // Vector value (type 'B')
-                            g_test_message("JIT IMPORT: Allocating h_vector for %s, size=%d, value_str='%s'",
+                            if (0) g_test_message("JIT IMPORT: Allocating h_vector for %s, size=%d, value_str='%s'",
                                           symbol_id, props ? props->size : -1, value_str);
                             hent->v.h_vector = g_malloc(props->size);
                             gint val_len = strlen(value_str);
@@ -3520,7 +3520,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                             for (gint i = 0; i < copy_len; i++) {
                                 hent->v.h_vector[pad_len + i] = gw_bit_from_char(value_str[i + offset]);
                             }
-                            g_test_message("JIT IMPORT: Allocated h_vector=%p for %s",
+                            if (0) g_test_message("JIT IMPORT: Allocated h_vector=%p for %s",
                                           hent->v.h_vector, symbol_id);
                         }
 
@@ -3560,7 +3560,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                         harray_needs_invalidation = TRUE;
                     }
                 } else {
-                    g_test_message("JIT IMPORT: Unsupported vlist type '%c' for symbol %s", vlist_type, symbol_id);
+                    if (0) g_test_message("JIT IMPORT: Unsupported vlist type '%c' for symbol %s", vlist_type, symbol_id);
                 }
 
                 // Invalidate harray once after adding all new entries for this signal
@@ -3620,7 +3620,7 @@ GwDumpFile *gw_vcd_partial_loader_get_dump_file(GwVcdPartialLoader *self)
                 g_object_unref(reader);
             }else{
 
-                g_test_message("JIT IMPORT: Signal '%s' (ID: %s) has NO new data in vlist. numhist is currently %d.",
+                if (0) g_test_message("JIT IMPORT: Signal '%s' (ID: %s) has NO new data in vlist. numhist is currently %d.",
                                            fac_symbol->n->nname, symbol_id, node->numhist);
             }
         }

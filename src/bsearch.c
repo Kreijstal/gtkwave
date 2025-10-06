@@ -14,6 +14,7 @@
 #include "symbol.h"
 #include "bsearch.h"
 #include "strace.h"
+#include "debug.h"
 #include <ctype.h>
 
 static int compar_timechain(const void *s1, const void *s2)
@@ -100,8 +101,170 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
     GLOBALS->max_compare_pos_bsearch_c_1 = NULL;
     GLOBALS->max_compare_index = NULL;
 
+    // Special handling for expanded child nodes: build history from parent dynamically
+    // This ensures child nodes stay synchronized with streaming updates to the parent
+    // Build when harray is NULL, or when parent's harray is NULL (indicating parent data changed)
+    if (n->expansion && n->expansion->parent) {
+        GwNode *parent = n->expansion->parent;
+        int bit_index = n->expansion->parentbit;
+        
+        // If parent's harray is NULL, it means parent has new data and needs rebuilding
+        // In this case, invalidate child's harray too so we rebuild from fresh parent data
+        if (parent->harray == NULL && n->harray != NULL) {
+            DEBUG(printf("bsearch_node: Invalidating child '%s' harray (parent changed)\n", n->nname));
+            // Free the harray pointer array
+            g_free(n->harray);
+            n->harray = NULL;
+            // Free the history entries in the linked list (except head which is embedded)
+            GwHistEnt *h_next = n->head.next;
+            while (h_next) {
+                GwHistEnt *h_temp = h_next->next;
+                g_free(h_next);
+                h_next = h_temp;
+            }
+            n->head.next = NULL;
+            n->curr = &(n->head);  // Reset curr to point to head
+            n->numhist = 0;  // Reset count
+        }
+        
+        if (n->harray == NULL) {
+            DEBUG(printf("bsearch_node: Building expanded child '%s' (bit %d) from parent '%s'\n",
+                         n->nname, bit_index, parent->nname));
+            
+            // Ensure parent has its harray built
+            if (parent->harray == NULL) {
+                // Recursively call bsearch_node on parent to build its harray
+                bsearch_node(parent, key);
+            }
+            
+            // Validate bit_index is within parent's vector bounds
+            int parent_width = ABS(parent->msi - parent->lsi) + 1;
+            if (bit_index < 0 || bit_index >= parent_width) {
+                DEBUG(printf("  ERROR: bit_index %d out of bounds for parent width %d\n", 
+                             bit_index, parent_width));
+                // Create minimal valid history with 2 entries
+                n->numhist = 2;
+                GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+                dummy->time = GW_TIME_MAX;
+                dummy->v.h_val = GW_BIT_X;
+                dummy->next = NULL;
+                n->head.next = dummy;
+                n->curr = dummy;
+                
+                GwHistEnt **harray = g_new(GwHistEnt *, 2);
+                n->harray = harray;
+                harray[0] = &(n->head);
+                harray[1] = dummy;
+                goto done_building;
+            }
+            
+            if (parent->harray != NULL && parent->numhist > 0) {
+                // Build child node's history from parent's vector data
+                n->head.time = -1;
+                n->head.v.h_val = GW_BIT_X;
+                n->head.next = NULL;
+                
+                GwHistEnt *child_curr = &(n->head);
+                GwBit last_val = GW_BIT_X;
+                int child_histcount = 1; // Start with head
+                
+                for (int i = 0; i < parent->numhist; i++) {
+                    GwHistEnt *parent_h = parent->harray[i];
+                    
+                    // Skip special time markers and entries without vector data
+                    if (parent_h->time < 0 || parent_h->time >= GW_TIME_MAX - 1 || 
+                        !parent_h->v.h_vector) {
+                        continue;
+                    }
+                    
+                    // Extract bit value from parent's vector
+                    unsigned char raw_val = parent_h->v.h_vector[bit_index];
+                    GwBit val;
+                    switch (raw_val) {
+                        case '0': val = GW_BIT_0; break;
+                        case '1': val = GW_BIT_1; break;
+                        case 'x':
+                        case 'X': val = GW_BIT_X; break;
+                        case 'z':
+                        case 'Z': val = GW_BIT_Z; break;
+                        case 'h':
+                        case 'H': val = GW_BIT_H; break;
+                        case 'l':
+                        case 'L': val = GW_BIT_L; break;
+                        case 'u':
+                        case 'U': val = GW_BIT_U; break;
+                        case 'w':
+                        case 'W': val = GW_BIT_W; break;
+                        case '-': val = GW_BIT_DASH; break;
+                        default: val = (GwBit)raw_val; break;
+                    }
+                    
+                    // Only create new history entry if value changed
+                    if (val != last_val) {
+                        GwHistEnt *new_h = g_new0(GwHistEnt, 1);
+                        new_h->time = parent_h->time;
+                        new_h->v.h_val = val;
+                        new_h->next = NULL;
+                        
+                        child_curr->next = new_h;
+                        child_curr = new_h;
+                        last_val = val;
+                        child_histcount++;
+                    }
+                }
+                
+                n->numhist = child_histcount;
+                n->curr = child_curr;
+                
+                DEBUG(printf("  Built %d history entries for child from parent's %d entries\n",
+                             child_histcount, parent->numhist));
+                
+                // Build harray for the child
+                // NOTE: bsearch_node assumes at least 2 entries (accesses harray[1])
+                // so we need to ensure numhist >= 2
+                if (child_histcount < 2) {
+                    // Add a dummy entry at the end to satisfy bsearch requirements
+                    GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+                    dummy->time = GW_TIME_MAX;
+                    dummy->v.h_val = GW_BIT_X;
+                    dummy->next = NULL;
+                    child_curr->next = dummy;
+                    n->curr = dummy;
+                    child_histcount = 2;
+                    n->numhist = 2;
+                }
+                
+                GwHistEnt **harray = g_new(GwHistEnt *, child_histcount);
+                n->harray = harray;
+                
+                GwHistEnt *histpnt = &(n->head);
+                for (int i = 0; i < child_histcount; i++) {
+                    *harray = histpnt;
+                    harray++;
+                    histpnt = histpnt->next;
+                }
+            } else {
+                // Parent has no history, create minimal valid history with 2 entries
+                n->numhist = 2;
+                GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+                dummy->time = GW_TIME_MAX;
+                dummy->v.h_val = GW_BIT_X;
+                dummy->next = NULL;
+                n->head.next = dummy;
+                n->curr = dummy;
+                
+                GwHistEnt **harray = g_new(GwHistEnt *, 2);
+                n->harray = harray;
+                harray[0] = &(n->head);
+                harray[1] = dummy;
+            }
+        }
+    done_building:
+        ; // Empty statement for label
+    }
     // Rebuild harray if it's NULL (e.g., after streaming VCD data added new history entries)
-    if (n->harray == NULL) {
+    // This branch is for non-expanded nodes only
+    else if (n->harray == NULL) {
         GwHistEnt *histpnt = &(n->head);
         int histcount = 0;
 
@@ -120,6 +283,35 @@ GwHistEnt *bsearch_node(GwNode *n, GwTime key)
             *harray = histpnt;
             harray++;
             histpnt = histpnt->next;
+        }
+    }
+
+    // Safety check: bsearch_node assumes at least 2 history entries (line 293 accesses harray[1])
+    // This should have been ensured by the expansion code above, but double-check here
+    if (n->numhist < 2 && n->harray) {
+        DEBUG(printf("bsearch_node: WARNING: numhist=%d < 2 for node '%s', fixing\n", n->numhist, n->nname));
+        // This shouldn't happen, but if it does, add a dummy entry
+        GwHistEnt *dummy = g_new0(GwHistEnt, 1);
+        dummy->time = GW_TIME_MAX;
+        dummy->v.h_val = GW_BIT_X;
+        dummy->next = NULL;
+        
+        if (n->numhist == 0) {
+            n->head.next = dummy;
+            n->curr = dummy;
+            g_free(n->harray);
+            n->harray = g_new(GwHistEnt *, 2);
+            n->harray[0] = &(n->head);
+            n->harray[1] = dummy;
+            n->numhist = 2;
+        } else if (n->numhist == 1) {
+            n->curr->next = dummy;
+            n->curr = dummy;
+            g_free(n->harray);
+            n->harray = g_new(GwHistEnt *, 2);
+            n->harray[0] = &(n->head);
+            n->harray[1] = dummy;
+            n->numhist = 2;
         }
     }
 
